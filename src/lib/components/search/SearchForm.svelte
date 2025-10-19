@@ -46,12 +46,73 @@
 			}
 
 			channelsStore.setChannels(data.channels, data.stats);
+
+			// If enrichment is queued, start polling for updates
+			if (data.enrichmentQueued && data.channels.length > 0) {
+				const channelIds = data.channels.map((c: any) => c.channelId);
+				startEnrichmentPolling(channelIds);
+			}
 		} catch (error) {
 			console.error('Search error:', error);
 			channelsStore.setError(
 				error instanceof Error ? error.message : 'An error occurred while searching'
 			);
 		}
+	}
+
+	let enrichmentPollingInterval: number | null = null;
+
+	function startEnrichmentPolling(channelIds: string[]) {
+		// Clear any existing polling
+		if (enrichmentPollingInterval) {
+			clearInterval(enrichmentPollingInterval);
+		}
+
+		console.log('[Polling] Starting enrichment polling for', channelIds.length, 'channels');
+
+		// Poll every 10 seconds
+		enrichmentPollingInterval = setInterval(async () => {
+			try {
+				const response = await fetch('/api/youtube/enrichment-status', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ channelIds })
+				});
+
+				const data = await response.json();
+
+				if (data.success && data.statuses) {
+					// Update channels with enrichment data
+					channelsStore.updateEnrichmentData(data.statuses);
+
+					// Check if all channels are enriched
+					const allEnriched = Object.values(data.statuses).every(
+						(status: any) => status.status === 'enriched' || status.status === 'failed'
+					);
+
+					if (allEnriched) {
+						console.log('[Polling] All channels enriched, stopping polling');
+						if (enrichmentPollingInterval) {
+							clearInterval(enrichmentPollingInterval);
+							enrichmentPollingInterval = null;
+						}
+					}
+				}
+			} catch (error) {
+				console.error('[Polling] Error fetching enrichment status:', error);
+			}
+		}, 10000); // Poll every 10 seconds
+
+		// Stop polling after 5 minutes
+		setTimeout(() => {
+			if (enrichmentPollingInterval) {
+				console.log('[Polling] Timeout reached, stopping polling');
+				clearInterval(enrichmentPollingInterval);
+				enrichmentPollingInterval = null;
+			}
+		}, 300000); // 5 minutes
 	}
 
 	function handleReset() {

@@ -3,6 +3,7 @@ import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
 import { ChannelFilter } from '$lib/server/youtube/filters';
 import { supabase, tables } from '$lib/server/db/supabase';
 import type { FilterConfig, ChannelInsert } from '$lib/types/models';
+import { EnrichmentService } from '$lib/server/queue/enrichment-service';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -83,7 +84,15 @@ export const POST: RequestHandler = async ({ request }) => {
 					console.error('Error saving channels to database:', dbError);
 					// Don't fail the request if DB save fails
 				} else {
-					console.log(`Saved ${channelsToInsert.length} channels to database`);
+					console.log(`[API] Saved ${channelsToInsert.length} channels to database`);
+
+					// Queue enrichment jobs for all channels (background processing)
+					if (isServerless) {
+						console.log(`[API] Queueing ${channelsWithScores.length} channels for background enrichment...`);
+						const channelIds = channelsWithScores.map((c) => c.channelId);
+						await EnrichmentService.queueChannels(channelIds, 1);
+						console.log('[API] Enrichment jobs queued successfully');
+					}
 				}
 			} catch (dbError) {
 				console.error('Database error:', dbError);
@@ -98,7 +107,9 @@ export const POST: RequestHandler = async ({ request }) => {
 				total: rawChannels.length,
 				filtered: filteredChannels.length,
 				keyword
-			}
+			},
+			// Indicate if enrichment is queued
+			enrichmentQueued: isServerless
 		});
 	} catch (error) {
 		console.error('[API] Search error:', error);

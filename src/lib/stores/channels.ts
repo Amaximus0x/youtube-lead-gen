@@ -39,6 +39,28 @@ function createChannelsStore() {
 				error: null
 			}));
 		},
+		updateEnrichmentData: (statuses: Record<string, any>) => {
+			update((state) => {
+				const updatedChannels = state.channels.map((channel) => {
+					const status = statuses[channel.channelId];
+					if (status && status.status === 'enriched') {
+						// Update channel with enriched data
+						return {
+							...channel,
+							subscriberCount: status.subscriber_count || channel.subscriberCount,
+							emails: status.emails || channel.emails,
+							socialLinks: status.social_links || channel.socialLinks
+						};
+					}
+					return channel;
+				});
+
+				return {
+					...state,
+					channels: updatedChannels
+				};
+			});
+		},
 		setError: (error: string) => {
 			update((state) => ({
 				...state,
