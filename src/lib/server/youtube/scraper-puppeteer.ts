@@ -50,18 +50,37 @@ export class YouTubeScraper {
 
 		if (isProduction) {
 			// Use @sparticuz/chromium for serverless environments
-			const chromiumModule = await import('@sparticuz/chromium');
-			const chromium = chromiumModule.default;
+			const chromium = (await import('@sparticuz/chromium')).default;
 			const puppeteer = await import('puppeteer-core');
 
-			// Get the executable path
+			// Configure chromium for serverless
 			const executablePath = await chromium.executablePath();
 
+			// Combine chromium's recommended args with our custom args
+			const serverlessArgs = [
+				...chromium.args,
+				'--no-sandbox',
+				'--disable-setuid-sandbox',
+				'--disable-dev-shm-usage',
+				'--disable-blink-features=AutomationControlled',
+				'--single-process',
+				'--no-zygote'
+			];
+
+			// Add proxy if configured
+			if (proxyUrl) {
+				serverlessArgs.push(`--proxy-server=${proxyUrl}`);
+				console.log(`Using proxy: ${proxyUrl}`);
+			}
+
+			console.log('Launching Chromium in serverless mode...');
+			console.log('Executable path:', executablePath);
+
 			this.browser = await puppeteer.launch({
-				args: commonArgs,
-				defaultViewport: { width: 1920, height: 1080 },
+				args: serverlessArgs,
+				defaultViewport: chromium.defaultViewport,
 				executablePath,
-				headless: true,
+				headless: chromium.headless,
 			});
 
 			console.log('YouTube scraper initialized (serverless mode)');

@@ -11,9 +11,11 @@ const config = {
 		// Using Vercel adapter for deployment
 		adapter: adapter({
 			runtime: 'nodejs20.x',
-			regions: ['iad1'],
 			maxDuration: 60,
-			memory: 1024
+			memory: 3008, // Maximum memory for better Chromium performance
+			isr: {
+				expiration: false
+			}
 		})
 	}
 };

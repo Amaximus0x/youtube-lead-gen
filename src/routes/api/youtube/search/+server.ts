@@ -90,11 +90,13 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		});
 	} catch (error) {
-		console.error('Search error:', error);
+		console.error('[API] Search error:', error);
+		console.error('[API] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
 		return json(
 			{
 				error: 'Failed to search channels',
-				message: error instanceof Error ? error.message : 'Unknown error'
+				message: error instanceof Error ? error.message : 'Unknown error',
+				stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : null) : null
 			},
 			{ status: 500 }
 		);
