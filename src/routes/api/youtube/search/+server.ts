@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getScraperInstance } from '$lib/server/youtube/scraper-v2';
+import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
 import { ChannelFilter } from '$lib/server/youtube/filters';
 import { supabase, tables } from '$lib/server/db/supabase';
 import type { FilterConfig, ChannelInsert } from '$lib/types/models';

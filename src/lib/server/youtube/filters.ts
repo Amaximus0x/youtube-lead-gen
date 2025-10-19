@@ -1,4 +1,4 @@
-import type { ChannelSearchResult } from './scraper-v2';
+import type { ChannelSearchResult } from './scraper-puppeteer';
 import type { FilterConfig } from '$lib/types/models';
 
 export class ChannelFilter {

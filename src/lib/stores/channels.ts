@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { ChannelSearchResult } from '$lib/server/youtube/scraper-v2';
+import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
 
 export interface SearchState {
 	isSearching: boolean;

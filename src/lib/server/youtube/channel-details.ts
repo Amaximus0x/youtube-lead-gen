@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page } from 'puppeteer-core';
 import { extractContactInfo } from './contact-extractor';
 
 export interface ChannelDetails {
@@ -28,8 +28,8 @@ export async function getChannelDetails(page: Page, channelUrl: string): Promise
 
 		// First, visit the /videos tab to get video count
 		const videosUrl = channelUrl.endsWith('/') ? `${channelUrl}videos` : `${channelUrl}/videos`;
-		await page.goto(videosUrl, { waitUntil: 'networkidle', timeout: 15000 });
-		await page.waitForTimeout(2000); // Wait for dynamic content
+		await page.goto(videosUrl, { waitUntil: 'networkidle0', timeout: 15000 });
+		await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for dynamic content
 
 		const details = await page.evaluate(() => {
 			const result: any = {};
@@ -183,7 +183,7 @@ export async function batchGetChannelDetails(
 			results.set(channel.channelId, details);
 
 			// Random delay to avoid rate limiting
-			await page.waitForTimeout(Math.random() * 2000 + 1000); // 1-3 seconds
+			await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000)); // 1-3 seconds
 		} catch (error) {
 			console.error(`Failed to fetch details for ${channel.channelId}:`, error);
 		}

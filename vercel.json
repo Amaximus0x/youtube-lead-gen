@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "src/routes/api/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true",
+    "PUPPETEER_EXECUTABLE_PATH": "/tmp/chromium"
+  }
+}

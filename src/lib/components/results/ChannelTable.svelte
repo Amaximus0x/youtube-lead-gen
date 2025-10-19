@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
-	import type { ChannelSearchResult } from '$lib/server/youtube/scraper-v2';
+	import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
 
 	$: channels = $channelsStore.channels;
 	$: stats = $channelsStore.stats;
@@ -30,7 +30,8 @@
 		return `${count.toLocaleString()}`;
 	}
 
-	function formatRelevance(score: number): string {
+	function formatRelevance(score: number | undefined): string {
+		if (!score) return '0%';
 		return `${Math.round(score)}%`;
 	}
 

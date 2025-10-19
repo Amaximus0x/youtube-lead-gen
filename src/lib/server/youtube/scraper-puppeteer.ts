@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'puppeteer-core';
 import { batchGetChannelDetails } from './channel-details';
 
 export interface ChannelSearchResult {
@@ -10,6 +10,7 @@ export interface ChannelSearchResult {
 	viewCount?: number;
 	videoCount?: number;
 	thumbnailUrl?: string;
+	relevanceScore?: number;
 	emails?: string[];
 	socialLinks?: {
 		instagram?: string;
@@ -29,17 +30,52 @@ export class YouTubeScraper {
 	async initialize() {
 		if (this.browser) return;
 
-		this.browser = await chromium.launch({
-			headless: true,
-			args: [
-				'--no-sandbox',
-				'--disable-setuid-sandbox',
-				'--disable-blink-features=AutomationControlled',
-				'--disable-dev-shm-usage'
-			]
-		});
+		// Detect if we're running in production (Vercel/serverless) or local
+		const isProduction = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+		const proxyUrl = process.env.PROXY_URL;
 
-		console.log('YouTube scraper initialized');
+		// Prepare common args
+		const commonArgs = [
+			'--no-sandbox',
+			'--disable-setuid-sandbox',
+			'--disable-blink-features=AutomationControlled',
+			'--disable-dev-shm-usage'
+		];
+
+		// Add proxy if configured
+		if (proxyUrl) {
+			commonArgs.push(`--proxy-server=${proxyUrl}`);
+			console.log(`Using proxy: ${proxyUrl}`);
+		}
+
+		if (isProduction) {
+			// Use @sparticuz/chromium for serverless environments
+			const chromiumModule = await import('@sparticuz/chromium');
+			const chromium = chromiumModule.default;
+			const puppeteer = await import('puppeteer-core');
+
+			// Get the executable path
+			const executablePath = await chromium.executablePath();
+
+			this.browser = await puppeteer.launch({
+				args: commonArgs,
+				defaultViewport: { width: 1920, height: 1080 },
+				executablePath,
+				headless: true,
+			});
+
+			console.log('YouTube scraper initialized (serverless mode)');
+		} else {
+			// Use regular puppeteer for local development
+			const puppeteer = await import('puppeteer');
+
+			this.browser = await puppeteer.launch({
+				headless: true,
+				args: commonArgs
+			});
+
+			console.log('YouTube scraper initialized (local mode)');
+		}
 	}
 
 	async close() {
@@ -74,7 +110,7 @@ export class YouTubeScraper {
 			const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(keyword)}&sp=EgIQAg%253D%253D`;
 			console.log('Searching YouTube:', searchUrl);
 
-			await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
+			await page.goto(searchUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
 			// Wait for content
 			console.log('Waiting for channel results...');
@@ -85,18 +121,18 @@ export class YouTubeScraper {
 			await page.evaluate(() => {
 				window.scrollBy(0, 500);
 			});
-			await page.waitForTimeout(1500);
+			await new Promise(resolve => setTimeout(resolve, 1500));
 
 			await page.evaluate(() => {
 				window.scrollBy(0, 500);
 			});
-			await page.waitForTimeout(1500);
+			await new Promise(resolve => setTimeout(resolve, 1500));
 
 			// Scroll back to top to ensure all elements are in view
 			await page.evaluate(() => {
 				window.scrollTo(0, 0);
 			});
-			await page.waitForTimeout(2000); // Wait for content to fully load
+			await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for content to fully load
 
 			// Extract channels using the working approach from test-scraper.js
 			let extractedChannels = await this.extractChannels(page);
@@ -109,7 +145,7 @@ export class YouTubeScraper {
 
 			while (channels.length < limit && scrollAttempts < maxScrolls) {
 				await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-				await page.waitForTimeout(2000);
+				await new Promise(resolve => setTimeout(resolve, 2000));
 
 				const newChannels = await this.extractChannels(page);
 				const uniqueNewChannels = newChannels.filter(
