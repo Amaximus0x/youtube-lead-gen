@@ -9,7 +9,12 @@ const config = {
 
 	kit: {
 		// Using Vercel adapter for deployment
-		adapter: adapter()
+		adapter: adapter({
+			runtime: 'nodejs20.x',
+			regions: ['iad1'],
+			maxDuration: 60,
+			memory: 1024
+		})
 	}
 };
 
