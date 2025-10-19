@@ -14,14 +14,25 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: 'Keyword is required' }, { status: 400 });
 		}
 
-		console.log(`Searching YouTube for: ${keyword}`);
+		console.log(`[API] Searching YouTube for: ${keyword}`);
+
+		// Detect if running in serverless (Vercel)
+		const isServerless = !!process.env.VERCEL;
+
+		// Use faster settings for serverless to avoid timeout
+		const searchLimit = isServerless ? Math.min(limit, 20) : limit; // Max 20 on serverless
+		const enableEnrichment = !isServerless; // Disable enrichment on serverless for speed
+
+		console.log(`[API] Environment: ${isServerless ? 'Serverless' : 'Local'}`);
+		console.log(`[API] Limit: ${searchLimit}, Enrichment: ${enableEnrichment}`);
 
 		// Get scraper instance
+		console.log('[API] Getting scraper instance...');
 		const scraper = await getScraperInstance();
 
-		// Search for channels (with enrichment enabled)
-		console.log(`Calling searchChannels with keyword="${keyword}", limit=${limit}, enrichData=true`);
-		const rawChannels = await scraper.searchChannels(keyword, limit, true);
+		// Search for channels (enrichment disabled on serverless for performance)
+		console.log(`[API] Calling searchChannels with keyword="${keyword}", limit=${searchLimit}, enrichData=${enableEnrichment}`);
+		const rawChannels = await scraper.searchChannels(keyword, searchLimit, enableEnrichment);
 
 		// Apply filters
 		const filter = new ChannelFilter();

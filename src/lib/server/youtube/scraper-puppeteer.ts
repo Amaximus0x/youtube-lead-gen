@@ -117,6 +117,10 @@ export class YouTubeScraper {
 		const page = await this.browser!.newPage();
 		const channels: ChannelSearchResult[] = [];
 
+		// Detect if running in serverless
+		const isServerless = !!process.env.VERCEL;
+		const waitTime = isServerless ? 500 : 1500; // Faster on serverless
+
 		try {
 			// Set user agent to avoid detection
 			await page.setExtraHTTPHeaders({
@@ -129,7 +133,7 @@ export class YouTubeScraper {
 			const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(keyword)}&sp=EgIQAg%253D%253D`;
 			console.log('Searching YouTube:', searchUrl);
 
-			await page.goto(searchUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+			await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
 			// Wait for content
 			console.log('Waiting for channel results...');
@@ -140,18 +144,18 @@ export class YouTubeScraper {
 			await page.evaluate(() => {
 				window.scrollBy(0, 500);
 			});
-			await new Promise(resolve => setTimeout(resolve, 1500));
+			await new Promise(resolve => setTimeout(resolve, waitTime));
 
 			await page.evaluate(() => {
 				window.scrollBy(0, 500);
 			});
-			await new Promise(resolve => setTimeout(resolve, 1500));
+			await new Promise(resolve => setTimeout(resolve, waitTime));
 
 			// Scroll back to top to ensure all elements are in view
 			await page.evaluate(() => {
 				window.scrollTo(0, 0);
 			});
-			await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for content to fully load
+			await new Promise(resolve => setTimeout(resolve, waitTime)); // Wait for content to fully load
 
 			// Extract channels using the working approach from test-scraper.js
 			let extractedChannels = await this.extractChannels(page);
@@ -160,11 +164,11 @@ export class YouTubeScraper {
 
 			// Scroll for more results if needed
 			let scrollAttempts = 0;
-			const maxScrolls = Math.ceil(limit / 10);
+			const maxScrolls = isServerless ? 2 : Math.ceil(limit / 10); // Limit scrolls on serverless
 
 			while (channels.length < limit && scrollAttempts < maxScrolls) {
 				await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-				await new Promise(resolve => setTimeout(resolve, 2000));
+				await new Promise(resolve => setTimeout(resolve, waitTime));
 
 				const newChannels = await this.extractChannels(page);
 				const uniqueNewChannels = newChannels.filter(
