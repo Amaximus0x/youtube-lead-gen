@@ -3,20 +3,31 @@ import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer'
 
 export interface SearchState {
 	isSearching: boolean;
+	isLoadingMore: boolean;
 	channels: Array<ChannelSearchResult & { relevanceScore: number }>;
 	error: string | null;
 	stats: {
 		total: number;
 		filtered: number;
 		keyword: string;
+		displayed?: number;
+		remaining?: number;
+	} | null;
+	pagination: {
+		currentPage: number;
+		pageSize: number;
+		totalChannels: number;
+		hasMore: boolean;
 	} | null;
 }
 
 const initialState: SearchState = {
 	isSearching: false,
+	isLoadingMore: false,
 	channels: [],
 	error: null,
-	stats: null
+	stats: null,
+	pagination: null
 };
 
 function createChannelsStore() {
@@ -29,15 +40,32 @@ function createChannelsStore() {
 		},
 		setChannels: (
 			channels: Array<ChannelSearchResult & { relevanceScore: number }>,
-			stats: SearchState['stats']
+			stats: SearchState['stats'],
+			pagination: SearchState['pagination']
 		) => {
 			update((state) => ({
 				...state,
 				channels,
 				stats,
+				pagination,
 				isSearching: false,
 				error: null
 			}));
+		},
+		appendChannels: (
+			channels: Array<ChannelSearchResult & { relevanceScore: number }>,
+			pagination: SearchState['pagination']
+		) => {
+			update((state) => ({
+				...state,
+				channels: [...state.channels, ...channels],
+				pagination,
+				isLoadingMore: false,
+				error: null
+			}));
+		},
+		setLoadingMore: (isLoadingMore: boolean) => {
+			update((state) => ({ ...state, isLoadingMore, error: null }));
 		},
 		updateEnrichmentData: (statuses: Record<string, any>) => {
 			update((state) => {
@@ -48,7 +76,9 @@ function createChannelsStore() {
 						return {
 							...channel,
 							subscriberCount: status.subscriber_count || channel.subscriberCount,
+							videoCount: status.video_count || channel.videoCount,
 							emails: status.emails || channel.emails,
+							email_sources: status.email_sources || channel.email_sources,
 							socialLinks: status.social_links || channel.socialLinks
 						};
 					}
@@ -65,7 +95,8 @@ function createChannelsStore() {
 			update((state) => ({
 				...state,
 				error,
-				isSearching: false
+				isSearching: false,
+				isLoadingMore: false
 			}));
 		},
 		reset: () => {

@@ -45,7 +45,7 @@
 				throw new Error(data.message || data.error || 'Search failed');
 			}
 
-			channelsStore.setChannels(data.channels, data.stats);
+			channelsStore.setChannels(data.channels, data.stats, data.pagination);
 
 			// If enrichment is queued, start polling for updates
 			if (data.enrichmentQueued && data.channels.length > 0) {

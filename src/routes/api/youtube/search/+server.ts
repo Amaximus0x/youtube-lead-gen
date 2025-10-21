@@ -100,13 +100,26 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		}
 
+		// Return only first 15 channels for initial display
+		const initialBatchSize = 15;
+		const initialChannels = channelsWithScores.slice(0, initialBatchSize);
+		const hasMore = channelsWithScores.length > initialBatchSize;
+
 		return json({
 			success: true,
-			channels: channelsWithScores,
+			channels: initialChannels,
 			stats: {
 				total: rawChannels.length,
 				filtered: filteredChannels.length,
-				keyword
+				keyword,
+				displayed: initialChannels.length,
+				remaining: channelsWithScores.length - initialChannels.length
+			},
+			pagination: {
+				currentPage: 1,
+				pageSize: initialBatchSize,
+				totalChannels: channelsWithScores.length,
+				hasMore
 			},
 			// Indicate if enrichment is queued
 			enrichmentQueued: isServerless

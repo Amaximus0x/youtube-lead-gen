@@ -4,9 +4,42 @@
 
 	$: channels = $channelsStore.channels;
 	$: stats = $channelsStore.stats;
+	$: pagination = $channelsStore.pagination;
+	$: isLoadingMore = $channelsStore.isLoadingMore;
 
 	let selectedChannel: ChannelSearchResult | null = null;
 	let showEmailModal = false;
+
+	async function loadMore() {
+		if (!pagination || !pagination.hasMore || isLoadingMore || !stats) return;
+
+		channelsStore.setLoadingMore(true);
+
+		try {
+			const response = await fetch('/api/youtube/load-more', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					keyword: stats.keyword,
+					page: pagination.currentPage + 1,
+					pageSize: pagination.pageSize
+				})
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.message || data.error || 'Failed to load more');
+			}
+
+			channelsStore.appendChannels(data.channels, data.pagination);
+		} catch (error) {
+			console.error('Load more error:', error);
+			channelsStore.setError(
+				error instanceof Error ? error.message : 'Failed to load more channels'
+			);
+		}
+	}
 
 	function formatSubscribers(count: number | undefined): string {
 		if (!count) return 'Unknown';
@@ -185,8 +218,53 @@
 		</table>
 	</div>
 
-	<div class="mt-4 text-sm text-gray-500 text-center">
-		Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
+	<div class="mt-4 flex flex-col items-center gap-3">
+		<div class="text-sm text-gray-500 text-center">
+			Showing {channels.length}
+			{#if pagination && pagination.totalChannels > 0}
+				of {pagination.totalChannels}
+			{/if}
+			channel{channels.length !== 1 ? 's' : ''}
+			{#if stats && stats.remaining && stats.remaining > 0}
+				<span class="text-blue-600">({stats.remaining} more available)</span>
+			{/if}
+		</div>
+
+		{#if pagination && pagination.hasMore}
+			<button
+				on:click={loadMore}
+				disabled={isLoadingMore}
+				class="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+			>
+				{#if isLoadingMore}
+					<span class="flex items-center gap-2">
+						<svg
+							class="animate-spin h-4 w-4"
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+						>
+							<circle
+								class="opacity-25"
+								cx="12"
+								cy="12"
+								r="10"
+								stroke="currentColor"
+								stroke-width="4"
+							/>
+							<path
+								class="opacity-75"
+								fill="currentColor"
+								d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+							/>
+						</svg>
+						Loading...
+					</span>
+				{:else}
+					Load More Channels
+				{/if}
+			</button>
+		{/if}
 	</div>
 {:else}
 	<div class="text-center py-12 bg-gray-50 rounded-lg">
@@ -302,15 +380,24 @@
 					{#if selectedChannel.emails && selectedChannel.emails.length > 0}
 						<div class="space-y-2">
 							{#each selectedChannel.emails as email}
-								<div class="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-									<span class="text-sm font-mono text-gray-900">{email}</span>
-									<button
-										on:click={() => navigator.clipboard.writeText(email)}
-										class="text-blue-600 hover:text-blue-800 text-xs"
-										title="Copy to clipboard"
-									>
-										Copy
-									</button>
+								<div class="bg-gray-50 p-3 rounded-lg">
+									<div class="flex items-center justify-between">
+										<span class="text-sm font-mono text-gray-900">{email}</span>
+										<button
+											on:click={() => navigator.clipboard.writeText(email)}
+											class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50"
+											title="Copy to clipboard"
+										>
+											Copy
+										</button>
+									</div>
+									{#if selectedChannel.email_sources && selectedChannel.email_sources[email]}
+										<div class="mt-1 text-xs text-gray-500">
+											Source: <span class="font-medium capitalize"
+												>{selectedChannel.email_sources[email].replace('_', ' ')}</span
+											>
+										</div>
+									{/if}
 								</div>
 							{/each}
 						</div>

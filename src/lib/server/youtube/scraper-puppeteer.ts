@@ -1,5 +1,6 @@
 import type { Browser, Page } from 'puppeteer-core';
 import { batchGetChannelDetails } from './channel-details';
+import { extractEmails, extractSocialLinks } from './contact-extractor';
 
 export interface ChannelSearchResult {
 	channelId: string;
@@ -164,11 +165,37 @@ export class YouTubeScraper {
 
 			// Scroll for more results if needed
 			let scrollAttempts = 0;
-			const maxScrolls = isServerless ? 2 : Math.ceil(limit / 10); // Limit scrolls on serverless
+			const maxScrolls = isServerless ? 3 : 15; // More scrolls to get 50+ channels
+			let noNewChannelsCount = 0; // Track consecutive failures
+			let previousHeight = 0;
 
 			while (channels.length < limit && scrollAttempts < maxScrolls) {
-				await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-				await new Promise(resolve => setTimeout(resolve, waitTime));
+				// Get current scroll height
+				const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+
+				// Scroll to bottom using multiple methods
+				await page.evaluate(() => {
+					// Method 1: Scroll to absolute bottom
+					window.scrollTo(0, document.body.scrollHeight);
+
+					// Method 2: Also try scrolling the main content div
+					const scrollContainer = document.querySelector('ytd-app');
+					if (scrollContainer) {
+						scrollContainer.scrollTop = scrollContainer.scrollHeight;
+					}
+				});
+
+				// Wait for YouTube to load more content
+				// Increase wait time significantly for more reliable loading
+				await new Promise(resolve => setTimeout(resolve, isServerless ? 1500 : 3000));
+
+				// Check if page height increased (indicates new content loaded)
+				const newHeight = await page.evaluate(() => document.body.scrollHeight);
+				const heightIncreased = newHeight > currentHeight;
+
+				if (heightIncreased) {
+					console.log(`Page height increased: ${currentHeight} -> ${newHeight}`);
+				}
 
 				const newChannels = await this.extractChannels(page);
 				const uniqueNewChannels = newChannels.filter(
@@ -176,48 +203,45 @@ export class YouTubeScraper {
 				);
 
 				if (uniqueNewChannels.length === 0) {
-					console.log('No more new channels, stopping scroll');
-					break;
+					noNewChannelsCount++;
+					console.log(`No new channels found (attempt ${noNewChannelsCount}/5) - Height increased: ${heightIncreased}`);
+
+					// Give YouTube more chances (5 attempts instead of 3)
+					if (noNewChannelsCount >= 5) {
+						console.log('No more new channels after 5 attempts, stopping scroll');
+						break;
+					}
+
+					// If height isn't increasing, YouTube might be done
+					if (!heightIncreased && noNewChannelsCount >= 3) {
+						console.log('Page height stopped increasing, likely no more results');
+						break;
+					}
+				} else {
+					noNewChannelsCount = 0; // Reset counter when we find new channels
+					channels.push(...uniqueNewChannels);
+					console.log(`Found ${uniqueNewChannels.length} new channels (total: ${channels.length}/${limit})`);
 				}
 
-				channels.push(...uniqueNewChannels);
+				previousHeight = newHeight;
 				scrollAttempts++;
 			}
 
+			console.log(`Scroll attempts: ${scrollAttempts}, Max allowed: ${maxScrolls}`);
+
 			console.log(`Total found: ${channels.length} channels for keyword: ${keyword}`);
 
-			// DEBUG: Log enrichment parameters
-			console.log(`DEBUG: enrichData = ${enrichData}, channels.length = ${channels.length}`);
+			// For better UX: Only enrich first batch immediately (10-15 channels)
+			// Rest will be enriched on-demand or in background
+			const initialBatchSize = 15;
+			const channelsToEnrichNow = channels.slice(0, Math.min(initialBatchSize, channels.length));
 
-			// Enrich data by visiting channel pages (if enabled and we have channels)
-			if (enrichData && channels.length > 0) {
-				console.log('Enriching channel data by visiting channel pages...');
-
+			if (channelsToEnrichNow.length > 0) {
+				console.log(`Getting accurate stats for first ${channelsToEnrichNow.length} channels...`);
 				try {
-					// Fetch detailed info for first 10 channels
-					const channelsToEnrich = channels.slice(0, Math.min(10, channels.length));
-					const detailsMap = await batchGetChannelDetails(
-						page,
-						channelsToEnrich.map((c) => ({ url: c.url, channelId: c.channelId })),
-						10
-					);
-
-					// Merge the detailed data
-					for (const channel of channels) {
-						const details = detailsMap.get(channel.channelId);
-						if (details) {
-							if (details.subscriberCount) channel.subscriberCount = details.subscriberCount;
-							if (details.videoCount) channel.videoCount = details.videoCount;
-							if (details.viewCount) channel.viewCount = details.viewCount;
-							if (details.description && !channel.description) channel.description = details.description;
-						if (details.emails && details.emails.length > 0) channel.emails = details.emails;
-						if (details.socialLinks) channel.socialLinks = details.socialLinks;
-						}
-					}
-
-					console.log(`Enriched ${detailsMap.size} channels with detailed data`);
+					await this.enrichChannelStats(page, channelsToEnrichNow);
 				} catch (enrichError) {
-					console.error('Error enriching channel data:', enrichError);
+					console.error('Error enriching channel stats:', enrichError);
 					// Continue even if enrichment fails
 				}
 			}
@@ -515,6 +539,410 @@ export class YouTubeScraper {
 	private async randomDelay(min: number, max: number): Promise<void> {
 		const delay = Math.floor(Math.random() * (max - min + 1)) + min;
 		await new Promise((resolve) => setTimeout(resolve, delay));
+	}
+
+	/**
+	 * Enrich channels with accurate subscriber and video counts from /about pages
+	 * This is a lightweight version that ONLY gets stats, not emails or social links
+	 */
+	private async enrichChannelStats(
+		page: Page,
+		channels: ChannelSearchResult[]
+	): Promise<void> {
+		const isServerless = !!process.env.VERCEL;
+		const delay = isServerless ? 500 : 1000; // Faster on serverless
+
+		for (let i = 0; i < channels.length; i++) {
+			const channel = channels[i];
+
+			try {
+				console.log(
+					`[Stats ${i + 1}/${channels.length}] Fetching stats for: ${channel.name}`
+				);
+
+				// Visit /about page
+				const aboutUrl = channel.url.endsWith('/')
+					? `${channel.url}about`
+					: `${channel.url}/about`;
+
+				// Listen to browser console logs
+				page.on('console', (msg) => {
+					const text = msg.text();
+					if (text.includes('[DEBUG]')) {
+						console.log(`  ${text}`);
+					}
+				});
+
+				await page.goto(aboutUrl, {
+					waitUntil: 'networkidle0',
+					timeout: 15000
+				});
+
+				// Wait for the page to fully load and render
+				await new Promise((resolve) => setTimeout(resolve, delay * 2));
+
+				// Scroll down to trigger lazy-loaded content
+				await page.evaluate(() => {
+					window.scrollTo(0, document.body.scrollHeight / 2);
+				});
+				await new Promise((resolve) => setTimeout(resolve, 500));
+
+				await page.evaluate(() => {
+					window.scrollTo(0, document.body.scrollHeight);
+				});
+				await new Promise((resolve) => setTimeout(resolve, 500));
+
+				// Extract subscriber and video count using multiple strategies
+				const stats = await page.evaluate(() => {
+					const result: any = {};
+
+					// Helper function to parse number with K/M/B suffix
+					function parseCount(text: string): number | null {
+						if (!text) return null;
+						const match = text.match(/([\d,.]+)\s*([KMB]?)/i);
+						if (match) {
+							const numStr = match[1].replace(/,/g, '');
+							const num = parseFloat(numStr);
+							const suffix = match[2]?.toUpperCase() || '';
+							const multipliers: Record<string, number> = {
+								K: 1000,
+								M: 1000000,
+								B: 1000000000,
+								'': 1
+							};
+							return Math.floor(num * (multipliers[suffix] || 1));
+						}
+						return null;
+					}
+
+					// Strategy 1: Try to find stats in structured elements
+					const statsElements = document.querySelectorAll('yt-formatted-string');
+					for (const el of Array.from(statsElements)) {
+						const text = el.textContent?.trim() || '';
+
+						// Check for subscribers
+						if (text.includes('subscriber') && !result.subscriberCount) {
+							const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
+							if (match) {
+								result.subscriberCount = parseCount(match[1]);
+							}
+						}
+
+						// Check for videos
+						if (text.includes('video') && !result.videoCount) {
+							const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
+							if (match) {
+								result.videoCount = parseCount(match[1]);
+							}
+						}
+					}
+
+					// Strategy 2: Parse from page text if not found
+					if (!result.subscriberCount || !result.videoCount) {
+						const pageText = document.body.innerText;
+						const lines = pageText
+							.split('\n')
+							.map((l) => l.trim())
+							.filter((l) => l.length > 0);
+
+						for (const line of lines) {
+							// Extract subscriber count
+							if (!result.subscriberCount && line.includes('subscriber')) {
+								const match = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
+								if (match) {
+									result.subscriberCount = parseCount(match[1]);
+								}
+							}
+
+							// Extract video count
+							if (!result.videoCount && line.includes('video')) {
+								const match = line.match(/([\d,.]+[KMB]?)\s*videos?/i);
+								if (match) {
+									result.videoCount = parseCount(match[1]);
+								}
+							}
+						}
+					}
+
+					// Strategy 3: Check table-like structures (Stats section)
+					if (!result.subscriberCount || !result.videoCount) {
+						const tables = document.querySelectorAll('table, .about-stats, #right-column');
+						console.log(`[DEBUG] Found ${tables.length} table/stats elements to check`);
+
+						for (const table of Array.from(tables)) {
+							const text = table.textContent || '';
+
+							if (!result.subscriberCount && text.includes('subscriber')) {
+								const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
+								if (match) {
+									result.subscriberCount = parseCount(match[1]);
+									console.log(`[DEBUG] Found subscribers in table: ${match[1]}`);
+								}
+							}
+
+							if (!result.videoCount && text.includes('video')) {
+								const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
+								if (match) {
+									result.videoCount = parseCount(match[1]);
+									console.log(`[DEBUG] Found videos in table: ${match[1]}`);
+								}
+							}
+						}
+					}
+
+					console.log(`[DEBUG] Final extracted stats - Subs: ${result.subscriberCount || 'null'}, Videos: ${result.videoCount || 'null'}`)
+
+					// ===== EXTRACT FULL DESCRIPTION TEXT =====
+					// Try multiple selectors to get the complete description
+					let descriptionText = '';
+
+					// Strategy 1: Look for yt-attributed-string elements (newer YouTube layout)
+					const attributedStrings = document.querySelectorAll('yt-attributed-string');
+					console.log(`[DEBUG] Found ${attributedStrings.length} yt-attributed-string elements`);
+					if (attributedStrings.length > 0) {
+						// The description is usually in the first or second yt-attributed-string
+						for (const el of Array.from(attributedStrings)) {
+							const text = el.textContent?.trim() || '';
+							if (text.length > 50) { // Description is usually longer than 50 chars
+								descriptionText = text;
+								console.log(`[DEBUG] Found description in yt-attributed-string (${descriptionText.length} chars)`);
+								break;
+							}
+						}
+					}
+
+					// Strategy 2: #description-container
+					if (!descriptionText) {
+						const descContainer = document.querySelector('#description-container');
+						if (descContainer) {
+							descriptionText = descContainer.textContent?.trim() || '';
+							console.log(`[DEBUG] Found description in #description-container (${descriptionText.length} chars)`);
+						}
+					}
+
+					// Strategy 3: #description
+					if (!descriptionText) {
+						const descEl = document.querySelector('#description');
+						if (descEl) {
+							descriptionText = descEl.textContent?.trim() || '';
+							console.log(`[DEBUG] Found description in #description (${descriptionText.length} chars)`);
+						}
+					}
+
+					// Strategy 4: ytd-channel-about-metadata-renderer #description
+					if (!descriptionText) {
+						const descEl = document.querySelector('ytd-channel-about-metadata-renderer #description');
+						if (descEl) {
+							descriptionText = descEl.textContent?.trim() || '';
+							console.log(`[DEBUG] Found description in ytd-channel-about-metadata-renderer (${descriptionText.length} chars)`);
+						}
+					}
+
+					// Strategy 5: Look in the description section specifically
+					if (!descriptionText) {
+						const descSection = document.querySelector('#description-container yt-formatted-string');
+						if (descSection) {
+							descriptionText = descSection.textContent?.trim() || '';
+							console.log(`[DEBUG] Found description in #description-container yt-formatted-string (${descriptionText.length} chars)`);
+						}
+					}
+
+					// Strategy 6: Get all text from about page metadata section
+					if (!descriptionText) {
+						const metadataEl = document.querySelector('ytd-channel-about-metadata-renderer');
+						if (metadataEl) {
+							// Get the main content area, excluding stats
+							const contentArea = metadataEl.querySelector('#content');
+							if (contentArea) {
+								descriptionText = contentArea.textContent?.trim() || '';
+								console.log(`[DEBUG] Found description in metadata content area (${descriptionText.length} chars)`);
+							}
+						}
+					}
+
+					// Strategy 7: Last resort - look for any large text block
+					if (!descriptionText) {
+						const allText = document.body.innerText;
+						console.log(`[DEBUG] Page innerText length: ${allText.length} chars`);
+						console.log(`[DEBUG] First 500 chars of page: ${allText.substring(0, 500)}`);
+					}
+
+					result.description = descriptionText;
+					console.log(`[DEBUG] Final description text length: ${descriptionText.length} chars`);
+
+					// ===== EXTRACT SOCIAL LINKS WITH IMPROVED SELECTORS =====
+					const socialLinks: Record<string, string> = {};
+
+					// Strategy 1: Look in the links section specifically
+					const linksSectionSelectors = [
+						'#link-list-container a[href]',
+						'ytd-channel-about-metadata-renderer #link-list-container a',
+						'#links-section a[href]',
+						'#channel-header-links a[href]',
+						'yt-formatted-string.ytd-channel-about-metadata-renderer a[href]'
+					];
+
+					let linksFound = [];
+					for (const selector of linksSectionSelectors) {
+						const foundLinks = document.querySelectorAll(selector);
+						if (foundLinks.length > 0) {
+							console.log(`[DEBUG] Found ${foundLinks.length} links using selector: ${selector}`);
+							linksFound = Array.from(foundLinks);
+							break;
+						}
+					}
+
+					// Strategy 2: If no links found in specific sections, don't filter - use all links found
+					// YouTube wraps external links through their redirect system, so we can't filter by domain
+					if (linksFound.length === 0) {
+						console.log(`[DEBUG] No links found in specific sections, using all found links`);
+					}
+
+					// Extract social media links
+					console.log(`[DEBUG] Processing ${linksFound.length} links for social media extraction`);
+					linksFound.forEach((link, idx) => {
+						let href = (link as HTMLAnchorElement).href;
+						console.log(`[DEBUG] Link ${idx + 1}: ${href}`);
+						if (!href || !href.startsWith('http')) {
+							console.log(`[DEBUG] Link ${idx + 1}: Skipped (not HTTP)`);
+							return;
+						}
+
+						// Decode YouTube redirect URLs
+						if (href.includes('youtube.com/redirect')) {
+							try {
+								const url = new URL(href);
+								const actualUrl = url.searchParams.get('q');
+								if (actualUrl) {
+									href = decodeURIComponent(actualUrl);
+									console.log(`[DEBUG] Link ${idx + 1}: Decoded redirect to: ${href}`);
+								}
+							} catch (e) {
+								console.log(`[DEBUG] Link ${idx + 1}: Failed to decode redirect`);
+							}
+						}
+
+						if (href.includes('instagram.com/') && !socialLinks.instagram) {
+							socialLinks.instagram = href;
+							console.log(`[DEBUG] Found Instagram: ${href}`);
+						}
+						if ((href.includes('twitter.com/') || href.includes('x.com/')) && !socialLinks.twitter) {
+							socialLinks.twitter = href;
+							console.log(`[DEBUG] Found Twitter/X: ${href}`);
+						}
+						if (href.includes('facebook.com/') && !socialLinks.facebook) {
+							socialLinks.facebook = href;
+							console.log(`[DEBUG] Found Facebook: ${href}`);
+						}
+						if (href.includes('tiktok.com/') && !socialLinks.tiktok) {
+							socialLinks.tiktok = href;
+							console.log(`[DEBUG] Found TikTok: ${href}`);
+						}
+						if ((href.includes('discord.gg/') || href.includes('discord.com/')) && !socialLinks.discord) {
+							socialLinks.discord = href;
+							console.log(`[DEBUG] Found Discord: ${href}`);
+						}
+						if (href.includes('twitch.tv/') && !socialLinks.twitch) {
+							socialLinks.twitch = href;
+							console.log(`[DEBUG] Found Twitch: ${href}`);
+						}
+						if (href.includes('linkedin.com/') && !socialLinks.linkedin) {
+							socialLinks.linkedin = href;
+							console.log(`[DEBUG] Found LinkedIn: ${href}`);
+						}
+
+						// Extract website (first non-social media link found)
+						if (
+							!socialLinks.website &&
+							href.startsWith('http') &&
+							!href.includes('youtube.com') &&
+							!href.includes('instagram.com') &&
+							!href.includes('twitter.com') &&
+							!href.includes('x.com') &&
+							!href.includes('facebook.com') &&
+							!href.includes('tiktok.com') &&
+							!href.includes('discord.') &&
+							!href.includes('twitch.tv') &&
+							!href.includes('linkedin.com')
+						) {
+							socialLinks.website = href;
+							console.log(`[DEBUG] Found Website: ${href}`);
+						}
+					});
+
+					console.log(`[DEBUG] Total social links extracted: ${Object.keys(socialLinks).length}`);
+					if (Object.keys(socialLinks).length > 0) {
+						console.log(`[DEBUG] Social links:`, JSON.stringify(socialLinks, null, 2));
+					}
+
+					result.socialLinks = socialLinks;
+
+					return result;
+				});
+
+				// Log what we got from the page
+				console.log(`[Stats ${i + 1}/${channels.length}] Raw stats from page:`, {
+					subscriberCount: stats.subscriberCount,
+					videoCount: stats.videoCount,
+					descriptionLength: stats.description?.length || 0,
+					socialLinksCount: Object.keys(stats.socialLinks || {}).length,
+					socialLinks: stats.socialLinks
+				});
+
+				// Update channel with stats
+				if (stats.subscriberCount !== null && stats.subscriberCount !== undefined) {
+					channel.subscriberCount = stats.subscriberCount;
+				}
+				if (stats.videoCount !== null && stats.videoCount !== undefined) {
+					channel.videoCount = stats.videoCount;
+				}
+				if (stats.description) {
+					channel.description = stats.description;
+
+					// Extract emails from the description text
+					const emails = extractEmails(stats.description);
+					console.log(`[Stats ${i + 1}/${channels.length}] Description text (first 200 chars): "${stats.description.substring(0, 200)}"`);
+					if (emails.length > 0) {
+						channel.emails = emails;
+						console.log(`[Stats ${i + 1}/${channels.length}] Found ${emails.length} email(s) in description: ${emails.join(', ')}`);
+					} else {
+						console.log(`[Stats ${i + 1}/${channels.length}] No emails found in description`);
+					}
+
+					// Extract social links from the description text
+					const socialLinksFromDescription = extractSocialLinks(stats.description);
+					if (Object.keys(socialLinksFromDescription).length > 0) {
+						console.log(`[Stats ${i + 1}/${channels.length}] Found ${Object.keys(socialLinksFromDescription).length} social link(s) in description:`, socialLinksFromDescription);
+						// Merge with existing social links from the page (description takes priority)
+						channel.socialLinks = { ...stats.socialLinks, ...socialLinksFromDescription };
+					}
+				} else {
+					console.log(`[Stats ${i + 1}/${channels.length}] No description text extracted`);
+				}
+
+				// If no social links from description, use the ones from page links
+				if (stats.socialLinks && Object.keys(stats.socialLinks).length > 0 && !channel.socialLinks) {
+					channel.socialLinks = stats.socialLinks;
+				}
+
+				console.log(
+					`[Stats ${i + 1}/${channels.length}] ${channel.name}: ${channel.subscriberCount || 'Unknown'} subs, ${channel.videoCount || 'Unknown'} videos, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
+				);
+			} catch (error) {
+				console.error(
+					`[Stats ${i + 1}/${channels.length}] Error fetching stats for ${channel.name}:`,
+					error
+				);
+				// Continue with next channel
+			}
+
+			// Small delay between requests to avoid rate limiting
+			if (i < channels.length - 1) {
+				await new Promise((resolve) => setTimeout(resolve, delay));
+			}
+		}
+
+		console.log(`[Stats] Enrichment complete. Processed ${channels.length} channels.`);
 	}
 }
 

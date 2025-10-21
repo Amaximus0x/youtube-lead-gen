@@ -1,5 +1,6 @@
 import { supabase } from '$lib/server/db/supabase';
 import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
+import { extractFromAllSources } from '$lib/server/youtube/multi-source-extractor';
 
 export interface EnrichmentJob {
 	id: string;
@@ -136,103 +137,68 @@ export class EnrichmentService {
 					'Accept-Language': 'en-US,en;q=0.9'
 				});
 
-				// Visit the /about page to get more details
+				// Visit the /about page first to get social links
 				const aboutUrl = channel.url.endsWith('/')
 					? `${channel.url}about`
 					: `${channel.url}/about`;
 				await page.goto(aboutUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
 				await new Promise((resolve) => setTimeout(resolve, 2000));
 
-				// Extract enrichment data
-				const enrichmentData = await page.evaluate(() => {
-					const result: any = {};
+				// First extract social links from about page
+				const socialLinks = await page.evaluate(() => {
+					const links: Record<string, string> = {};
+					const allLinks = Array.from(document.querySelectorAll('a[href]'));
 
-					// Helper function to parse number with K/M/B suffix
-					function parseCount(text: string): number | null {
-						const match = text.match(/([\d,.]+)\s*([KMB]?)/i);
-						if (match) {
-							const numStr = match[1].replace(/,/g, '');
-							const num = parseFloat(numStr);
-							const suffix = match[2]?.toUpperCase() || '';
-							const multipliers: Record<string, number> = {
-								K: 1000,
-								M: 1000000,
-								B: 1000000000,
-								'': 1
-							};
-							return Math.floor(num * (multipliers[suffix] || 1));
-						}
-						return null;
-					}
-
-					// Get page text
-					const pageText = document.body.innerText;
-					const lines = pageText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-
-					// Extract subscriber count
-					for (const line of lines) {
-						if (line.includes('subscriber')) {
-							const match = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
-							if (match) {
-								result.subscriberCount = parseCount(match[1]);
-								break;
-							}
-						}
-					}
-
-					// Extract description
-					const descriptionEl = document.querySelector('#description');
-					if (descriptionEl) {
-						result.description = descriptionEl.textContent?.trim() || '';
-					}
-
-					// Extract emails from page
-					const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-					const emails = new Set<string>();
-					const pageHTML = document.body.innerHTML;
-
-					const emailMatches = pageHTML.match(emailRegex);
-					if (emailMatches) {
-						emailMatches.forEach((email) => {
-							// Filter out common false positives
-							if (
-								!email.includes('example.com') &&
-								!email.includes('test.com') &&
-								!email.includes('youtube.com')
-							) {
-								emails.add(email.toLowerCase());
-							}
-						});
-					}
-
-					result.emails = Array.from(emails);
-
-					// Extract social links
-					const socialLinks: Record<string, string> = {};
-					const links = Array.from(document.querySelectorAll('a[href]'));
-
-					links.forEach((link) => {
+					allLinks.forEach((link) => {
 						const href = (link as HTMLAnchorElement).href;
 
-						if (href.includes('instagram.com/')) socialLinks.instagram = href;
-						if (href.includes('twitter.com/') || href.includes('x.com/'))
-							socialLinks.twitter = href;
-						if (href.includes('facebook.com/')) socialLinks.facebook = href;
-						if (href.includes('tiktok.com/')) socialLinks.tiktok = href;
+						if (href.includes('instagram.com/')) links.instagram = href;
+						if (href.includes('twitter.com/') || href.includes('x.com/')) links.twitter = href;
+						if (href.includes('facebook.com/')) links.facebook = href;
+						if (href.includes('tiktok.com/')) links.tiktok = href;
 						if (href.includes('discord.gg/') || href.includes('discord.com/'))
-							socialLinks.discord = href;
-						if (href.includes('twitch.tv/')) socialLinks.twitch = href;
-						if (href.includes('linkedin.com/')) socialLinks.linkedin = href;
+							links.discord = href;
+						if (href.includes('twitch.tv/')) links.twitch = href;
+						if (href.includes('linkedin.com/')) links.linkedin = href;
+
+						// Extract website (non-social media links)
+						if (
+							href.startsWith('http') &&
+							!href.includes('youtube.com') &&
+							!href.includes('instagram.com') &&
+							!href.includes('twitter.com') &&
+							!href.includes('x.com') &&
+							!href.includes('facebook.com') &&
+							!href.includes('tiktok.com') &&
+							!href.includes('discord.') &&
+							!href.includes('twitch.tv') &&
+							!href.includes('linkedin.com') &&
+							!links.website
+						) {
+							links.website = href;
+						}
 					});
 
-					result.socialLinks = socialLinks;
-
-					return result;
+					return links;
 				});
 
+				console.log(`[Enrichment] Social links found:`, JSON.stringify(socialLinks, null, 2));
+
+				// Use multi-source extractor to get enrichment data from all sources
+				const enrichmentData = await extractFromAllSources(page, channel.url, socialLinks);
+
 				console.log(
-					`[Enrichment] Extracted data for ${job.channel_id}:`,
-					JSON.stringify(enrichmentData, null, 2)
+					`[Enrichment] Multi-source extraction complete for ${job.channel_id}:`,
+					JSON.stringify(
+						{
+							emails: enrichmentData.emails,
+							emailSources: enrichmentData.emailSources,
+							subscriberCount: enrichmentData.subscriberCount,
+							videoCount: enrichmentData.videoCount
+						},
+						null,
+						2
+					)
 				);
 
 				// Update channel with enriched data
@@ -244,11 +210,18 @@ export class EnrichmentService {
 				if (enrichmentData.subscriberCount) {
 					updateData.subscriber_count = enrichmentData.subscriberCount;
 				}
+				if (enrichmentData.videoCount) {
+					updateData.video_count = enrichmentData.videoCount;
+				}
 				if (enrichmentData.description) {
 					updateData.description = enrichmentData.description;
 				}
 				if (enrichmentData.emails && enrichmentData.emails.length > 0) {
 					updateData.emails = enrichmentData.emails;
+					// Also store email sources in social_links for tracking
+					if (enrichmentData.emailSources) {
+						updateData.email_sources = enrichmentData.emailSources;
+					}
 				}
 				if (enrichmentData.socialLinks && Object.keys(enrichmentData.socialLinks).length > 0) {
 					updateData.social_links = enrichmentData.socialLinks;

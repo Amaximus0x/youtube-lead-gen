@@ -52,6 +52,11 @@ export interface Channel {
   email?: string | null;
   email_verified: boolean;
   email_source?: 'youtube' | 'instagram' | 'twitter' | 'website' | null;
+  emails?: string[] | null;
+  email_sources?: Record<string, string> | null;
+  social_links?: Record<string, string> | null;
+  enrichment_status?: 'pending' | 'enriching' | 'enriched' | 'failed' | null;
+  enriched_at?: string | null;
   search_keyword: string;
   relevance_score?: number | null;
   status: 'pending' | 'processing' | 'completed' | 'failed';
