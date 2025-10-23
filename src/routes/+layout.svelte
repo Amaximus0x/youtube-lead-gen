@@ -12,7 +12,7 @@
 
 <div class="min-h-screen bg-gray-50">
 	<nav class="bg-white shadow-sm">
-		<div class="container mx-auto px-6 py-4">
+		<div class="container px-6 py-4 mx-auto">
 			<div class="flex items-center justify-between">
 				<h1 class="text-2xl font-bold text-primary-600">YouTube Lead Gen</h1>
 				<div class="flex gap-4">
@@ -23,7 +23,7 @@
 		</div>
 	</nav>
 
-	<main class="container mx-auto px-6 py-8">
+	<main class="container py-8 mx-auto">
 		{@render children?.()}
 	</main>
 </div>

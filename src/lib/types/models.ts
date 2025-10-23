@@ -49,6 +49,7 @@ export interface Channel {
   subscriber_count?: number | null;
   view_count?: number | null;
   video_count?: number | null;
+  country?: string | null;
   email?: string | null;
   email_verified: boolean;
   email_source?: 'youtube' | 'instagram' | 'twitter' | 'website' | null;
@@ -74,6 +75,7 @@ export interface ChannelInsert {
   subscriber_count?: number | null;
   view_count?: number | null;
   video_count?: number | null;
+  country?: string | null;
   email?: string | null;
   email_verified?: boolean;
   email_source?: 'youtube' | 'instagram' | 'twitter' | 'website' | null;
@@ -91,6 +93,7 @@ export interface ChannelUpdate {
   subscriber_count?: number | null;
   view_count?: number | null;
   video_count?: number | null;
+  country?: string | null;
   email?: string | null;
   email_verified?: boolean;
   email_source?: 'youtube' | 'instagram' | 'twitter' | 'website' | null;
