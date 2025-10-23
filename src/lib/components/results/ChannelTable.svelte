@@ -63,6 +63,26 @@
 		return `${count.toLocaleString()}`;
 	}
 
+	function formatViews(count: number | undefined): string {
+		if (!count) return 'Unknown';
+		if (count >= 1000000000) {
+			const value = count / 1000000000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}B`;
+		}
+		if (count >= 1000000) {
+			const value = count / 1000000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}M`;
+		}
+		if (count >= 1000) {
+			const value = count / 1000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}K`;
+		}
+		return count.toLocaleString();
+	}
+
 	function formatRelevance(score: number | undefined): string {
 		if (!score) return '0%';
 		return `${Math.round(score)}%`;
@@ -116,22 +136,28 @@
 		<table class="min-w-full divide-y divide-gray-200">
 			<thead class="bg-gray-50">
 				<tr>
-					<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+					<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 						Channel
 					</th>
-					<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 						Subscribers
 					</th>
-					<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 						Videos
 					</th>
-					<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+						Views
+					</th>
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+						Country
+					</th>
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 						Relevance
 					</th>
-					<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 						Email Status
 					</th>
-					<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 						Actions
 					</th>
 				</tr>
@@ -139,40 +165,50 @@
 			<tbody class="bg-white divide-y divide-gray-200">
 				{#each channels as channel (channel.channelId)}
 					<tr class="hover:bg-gray-50 transition-colors">
-						<td class="px-6 py-4">
+						<td class="px-4 py-3">
 							<div class="flex items-center">
 								{#if channel.thumbnailUrl}
 									<img
 										src={channel.thumbnailUrl}
 										alt={channel.name}
-										class="h-10 w-10 rounded-full mr-3"
+										class="h-10 w-10 rounded-full mr-3 flex-shrink-0"
 									/>
 								{/if}
-								<div>
-									<div class="text-sm font-medium text-gray-900">
+								<div class="min-w-0">
+									<div class="text-sm font-medium text-gray-900 truncate max-w-[180px]">
 										{channel.name}
 									</div>
 									{#if channel.description}
-										<div class="text-sm text-gray-500 truncate max-w-md">
+										<div class="text-xs text-gray-500 truncate max-w-[180px]">
 											{channel.description}
 										</div>
 									{/if}
 								</div>
 							</div>
 						</td>
-						<td class="px-6 py-4 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap">
 							<div class="text-sm text-gray-900">
 								{formatSubscribers(channel.subscriberCount)}
 							</div>
 						</td>
-						<td class="px-6 py-4 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap">
 							<div class="text-sm text-gray-900">
 								{formatVideos(channel.videoCount)}
 							</div>
 						</td>
-						<td class="px-6 py-4 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap">
+							<div class="text-sm text-gray-900">
+								{formatViews(channel.viewCount)}
+							</div>
+						</td>
+						<td class="px-3 py-3 whitespace-nowrap">
+							<div class="text-sm text-gray-900">
+								{channel.country || 'Unknown'}
+							</div>
+						</td>
+						<td class="px-3 py-3 whitespace-nowrap">
 							<div class="flex items-center">
-								<div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 60px;">
+								<div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
 									<div
 										class="bg-blue-600 h-2.5 rounded-full"
 										style="width: {channel.relevanceScore}%"
@@ -181,7 +217,7 @@
 								<span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
 							</div>
 						</td>
-						<td class="px-6 py-4 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap">
 							{#if channel.emails && channel.emails.length > 0}
 								<span
 									class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800"
@@ -196,12 +232,12 @@
 								</span>
 							{/if}
 						</td>
-						<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+						<td class="px-3 py-3 whitespace-nowrap text-sm font-medium">
 							<a
 								href={channel.url}
 								target="_blank"
 								rel="noopener noreferrer"
-								class="text-blue-600 hover:text-blue-900 mr-3"
+								class="text-blue-600 hover:text-blue-900 mr-2"
 							>
 								Visit
 							</a>
@@ -209,7 +245,7 @@
 								on:click={() => showEmailDetails(channel)}
 								class="text-green-600 hover:text-green-900 hover:underline"
 							>
-								View Details
+								Details
 							</button>
 						</td>
 					</tr>
@@ -338,7 +374,7 @@
 			<!-- Modal Body -->
 			<div class="px-6 py-4">
 				<!-- Channel Stats -->
-				<div class="grid grid-cols-3 gap-4 mb-6">
+				<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
 					<div class="bg-blue-50 p-3 rounded-lg">
 						<div class="text-sm text-gray-600">Subscribers</div>
 						<div class="text-lg font-semibold text-blue-700">
@@ -349,6 +385,18 @@
 						<div class="text-sm text-gray-600">Videos</div>
 						<div class="text-lg font-semibold text-green-700">
 							{formatVideos(selectedChannel.videoCount)}
+						</div>
+					</div>
+					<div class="bg-orange-50 p-3 rounded-lg">
+						<div class="text-sm text-gray-600">Views</div>
+						<div class="text-lg font-semibold text-orange-700">
+							{formatViews(selectedChannel.viewCount)}
+						</div>
+					</div>
+					<div class="bg-indigo-50 p-3 rounded-lg">
+						<div class="text-sm text-gray-600">Country</div>
+						<div class="text-lg font-semibold text-indigo-700">
+							{selectedChannel.country || 'Unknown'}
 						</div>
 					</div>
 					<div class="bg-purple-50 p-3 rounded-lg">

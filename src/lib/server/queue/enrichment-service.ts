@@ -213,6 +213,12 @@ export class EnrichmentService {
 				if (enrichmentData.videoCount) {
 					updateData.video_count = enrichmentData.videoCount;
 				}
+				if (enrichmentData.viewCount) {
+					updateData.view_count = enrichmentData.viewCount;
+				}
+				if (enrichmentData.country) {
+					updateData.country = enrichmentData.country;
+				}
 				if (enrichmentData.description) {
 					updateData.description = enrichmentData.description;
 				}

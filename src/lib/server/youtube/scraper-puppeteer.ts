@@ -10,6 +10,7 @@ export interface ChannelSearchResult {
 	subscriberCount?: number;
 	viewCount?: number;
 	videoCount?: number;
+	country?: string;
 	thumbnailUrl?: string;
 	relevanceScore?: number;
 	emails?: string[];
@@ -231,22 +232,20 @@ export class YouTubeScraper {
 
 			console.log(`Total found: ${channels.length} channels for keyword: ${keyword}`);
 
-			// For better UX: Only enrich first batch immediately (10-15 channels)
-			// Rest will be enriched on-demand or in background
-			const initialBatchSize = 15;
-			const channelsToEnrichNow = channels.slice(0, Math.min(initialBatchSize, channels.length));
+			// Enrich ALL channels up to the limit to ensure complete data
+			const channelsToReturn = channels.slice(0, limit);
 
-			if (channelsToEnrichNow.length > 0) {
-				console.log(`Getting accurate stats for first ${channelsToEnrichNow.length} channels...`);
+			if (channelsToReturn.length > 0) {
+				console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
 				try {
-					await this.enrichChannelStats(page, channelsToEnrichNow);
+					await this.enrichChannelStats(page, channelsToReturn);
 				} catch (enrichError) {
 					console.error('Error enriching channel stats:', enrichError);
 					// Continue even if enrichment fails
 				}
 			}
 
-			return channels.slice(0, limit);
+			return channelsToReturn;
 		} catch (error) {
 			console.error('Error searching channels:', error);
 			throw new Error(`Failed to search channels: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -692,6 +691,116 @@ export class YouTubeScraper {
 
 					console.log(`[DEBUG] Final extracted stats - Subs: ${result.subscriberCount || 'null'}, Videos: ${result.videoCount || 'null'}`)
 
+					// ===== EXTRACT VIEW COUNT AND COUNTRY FROM "MORE INFO" SECTION =====
+					// The stats appear in order: subscribers → videos → views (with chart icon)
+					// We need to find the view count that appears RIGHT AFTER the video count
+
+					// Strategy 1: Sequential parsing - find "videos" then next "views" is channel views
+					const pageText = document.body.innerText;
+					const lines = pageText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+
+					let foundVideosLine = false;
+					for (let i = 0; i < lines.length; i++) {
+						const line = lines[i];
+						console.log(`[DEBUG] Line ${i}: "${line}"`);
+
+						// Track when we find the videos count
+						if (line.match(/^\d[\d,]*\s*videos?$/i)) {
+							foundVideosLine = true;
+							console.log(`[DEBUG] Found videos line at index ${i}`);
+							continue;
+						}
+
+						// The NEXT line with "views" after "videos" is the channel view count
+						if (foundVideosLine && !result.viewCount && line.match(/^\d[\d,]*\s*views?$/i)) {
+							const viewMatch = line.match(/([\d,.]+)\s*views?/i);
+							if (viewMatch) {
+								result.viewCount = parseCount(viewMatch[1]);
+								console.log(`[DEBUG] Found channel views (after videos): ${viewMatch[1]} = ${result.viewCount}`);
+								break; // Stop after finding it
+							}
+						}
+
+						// Look for country - appears before "Joined" line
+						if (!result.country && i < lines.length - 1) {
+							const nextLine = lines[i + 1];
+							if (nextLine.match(/^Joined\s+/i)) {
+								// Check if current line looks like a country name
+								if (line.match(/^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/) && !line.match(/subscriber|video|view|http/i)) {
+									result.country = line;
+									console.log(`[DEBUG] Found country before 'Joined': ${result.country}`);
+								}
+							}
+						}
+					}
+
+					// Strategy 2: Fallback - look for view count with large numbers in table/tr elements
+					if (!result.viewCount) {
+						console.log(`[DEBUG] Strategy 1 failed, trying table elements`);
+						const tables = document.querySelectorAll('table tr, #right-column');
+						for (const table of Array.from(tables)) {
+							const rows = table.querySelectorAll('td, yt-formatted-string');
+							const rowTexts = Array.from(rows).map(r => r.textContent?.trim() || '');
+
+							// Find index of videos
+							const videoIndex = rowTexts.findIndex(t => t.match(/^\d[\d,]*\s*videos?$/i));
+							if (videoIndex >= 0 && videoIndex < rowTexts.length - 1) {
+								// Check next row for views
+								const nextText = rowTexts[videoIndex + 1];
+								if (nextText.match(/^\d[\d,]*\s*views?$/i)) {
+									const viewMatch = nextText.match(/([\d,.]+)\s*views?/i);
+									if (viewMatch) {
+										result.viewCount = parseCount(viewMatch[1]);
+										console.log(`[DEBUG] Found views in table after videos: ${viewMatch[1]}`);
+										break;
+									}
+								}
+							}
+						}
+					}
+
+					// Strategy 3: Look specifically in #right-column for sequential order
+					if (!result.viewCount || !result.country) {
+						const rightColumn = document.querySelector('#right-column');
+						if (rightColumn) {
+							console.log(`[DEBUG] Trying #right-column`);
+							const allText = rightColumn.innerText;
+							const rightLines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+							let foundVids = false;
+							for (let i = 0; i < rightLines.length; i++) {
+								const line = rightLines[i];
+
+								// Track videos line
+								if (line.match(/^\d[\d,]*\s*videos?$/i)) {
+									foundVids = true;
+									console.log(`[DEBUG] Found videos in right-column at line ${i}`);
+								}
+
+								// Next views after videos
+								if (foundVids && !result.viewCount && line.match(/^\d[\d,]*\s*views?$/i)) {
+									const viewMatch = line.match(/([\d,.]+)\s*views?/i);
+									if (viewMatch) {
+										result.viewCount = parseCount(viewMatch[1]);
+										console.log(`[DEBUG] Found views in right-column: ${viewMatch[1]}`);
+										break;
+									}
+								}
+
+								// Country before Joined
+								if (!result.country && i < rightLines.length - 1) {
+									const nextLine = rightLines[i + 1];
+									if (nextLine.match(/^Joined\s+/i) && line.match(/^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/)) {
+										result.country = line;
+										console.log(`[DEBUG] Found country in right-column: ${result.country}`);
+									}
+								}
+							}
+						}
+					}
+
+					console.log(`[DEBUG] Final extracted - Country: ${result.country || 'null'}, View count: ${result.viewCount || 'null'}`);
+
 					// ===== EXTRACT FULL DESCRIPTION TEXT =====
 					// Try multiple selectors to get the complete description
 					let descriptionText = '';
@@ -884,6 +993,8 @@ export class YouTubeScraper {
 				console.log(`[Stats ${i + 1}/${channels.length}] Raw stats from page:`, {
 					subscriberCount: stats.subscriberCount,
 					videoCount: stats.videoCount,
+					viewCount: stats.viewCount,
+					country: stats.country,
 					descriptionLength: stats.description?.length || 0,
 					socialLinksCount: Object.keys(stats.socialLinks || {}).length,
 					socialLinks: stats.socialLinks
@@ -895,6 +1006,12 @@ export class YouTubeScraper {
 				}
 				if (stats.videoCount !== null && stats.videoCount !== undefined) {
 					channel.videoCount = stats.videoCount;
+				}
+				if (stats.viewCount !== null && stats.viewCount !== undefined) {
+					channel.viewCount = stats.viewCount;
+				}
+				if (stats.country) {
+					channel.country = stats.country;
 				}
 				if (stats.description) {
 					channel.description = stats.description;
@@ -926,7 +1043,7 @@ export class YouTubeScraper {
 				}
 
 				console.log(
-					`[Stats ${i + 1}/${channels.length}] ${channel.name}: ${channel.subscriberCount || 'Unknown'} subs, ${channel.videoCount || 'Unknown'} videos, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
+					`[Stats ${i + 1}/${channels.length}] ${channel.name}: ${channel.subscriberCount || 'Unknown'} subs, ${channel.videoCount || 'Unknown'} videos, ${channel.viewCount || 'Unknown'} views, country: ${channel.country || 'Unknown'}, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
 				);
 			} catch (error) {
 				console.error(
