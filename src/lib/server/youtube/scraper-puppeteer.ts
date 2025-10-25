@@ -424,45 +424,14 @@ export class YouTubeScraper {
           return; // Skip if no name found
         }
 
-        // Find subscriber count - try multiple approaches
+        // NOTE: Search results no longer show subscriber counts on initial load
+        // All subscriber/video counts are fetched from /about pages during enrichment
+        // These approaches have been removed as they had 0% success rate in testing
         let subscriberCount: number | undefined = undefined;
-        let subText = '';
 
-        // Try approach 1: #subscribers yt-formatted-string
-        let subEl = el.querySelector('#subscribers yt-formatted-string') as HTMLElement;
-        if (subEl) {
-          subText = subEl.textContent?.trim() || '';
-          subscriberCount = parseSubCount(subText);
-        }
-
-        // Try approach 2: #subscribers #text
-        if (subscriberCount === undefined) {
-          subEl = el.querySelector('#subscribers #text') as HTMLElement;
-          if (subEl) {
-            subText = subEl.textContent?.trim() || '';
-            subscriberCount = parseSubCount(subText);
-          }
-        }
-
-        // Try approach 3: just #subscribers, then parse the text
-        if (subscriberCount === undefined) {
-          subEl = el.querySelector('#subscribers') as HTMLElement;
-          if (subEl) {
-            subText = subEl.textContent?.trim() || '';
-            // The text might be like "190K subscribers" - extract just the number part
-            const cleanText = subText.split('subscribers')[0].trim();
-            subscriberCount = parseSubCount(cleanText);
-          }
-        }
-
-        // Try approach 4: #subscriber-count
-        if (subscriberCount === undefined) {
-          subEl = el.querySelector('#subscriber-count') as HTMLElement;
-          if (subEl) {
-            subText = subEl.textContent?.trim() || '';
-            subscriberCount = parseSubCount(subText);
-          }
-        }
+        // REMOVED: APPROACH 1-4 - Search result extraction (0% success rate)
+        // YouTube search results only show channel handles like "@ChannelName"
+        // Actual counts are only available on /about pages (handled in enrichment phase)
 
         // Find description
         let description = '';
@@ -617,6 +586,7 @@ export class YouTubeScraper {
 
           // Strategy 1: Try to find stats in structured elements
           const statsElements = document.querySelectorAll('yt-formatted-string');
+          console.log(`[ENRICHMENT STRATEGY 1] Found ${statsElements.length} yt-formatted-string elements`);
           for (const el of Array.from(statsElements)) {
             const text = el.textContent?.trim() || '';
 
@@ -625,6 +595,7 @@ export class YouTubeScraper {
               const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
               if (match) {
                 result.subscriberCount = parseCount(match[1]);
+                console.log(`[ENRICHMENT STRATEGY 1 - SUBS] Text: "${text}" | Match: "${match[1]}" | Parsed: ${result.subscriberCount}`);
               }
             }
 
@@ -633,62 +604,53 @@ export class YouTubeScraper {
               const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
               if (match) {
                 result.videoCount = parseCount(match[1]);
+                console.log(`[ENRICHMENT STRATEGY 1 - VIDEOS] Text: "${text}" | Match: "${match[1]}" | Parsed: ${result.videoCount}`);
               }
             }
           }
 
-          // Strategy 2: Parse from page text if not found
+          // Strategy 2: Page text parsing (FALLBACK - kept for reliability)
+          // Uncommented as fallback when Strategy 1 fails due to YouTube layout changes
           if (!result.subscriberCount || !result.videoCount) {
+            console.log(`[ENRICHMENT STRATEGY 2] Starting page text parsing (missing subs: ${!result.subscriberCount}, missing videos: ${!result.videoCount})`);
             const pageText = document.body.innerText;
-            const lines = pageText
-              .split('\n')
-              .map((l) => l.trim())
-              .filter((l) => l.length > 0);
+            const lines = pageText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
 
+            console.log(`[ENRICHMENT STRATEGY 2] Parsing ${lines.length} lines from page text`);
             for (const line of lines) {
-              // Extract subscriber count
               if (!result.subscriberCount && line.includes('subscriber')) {
                 const match = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
                 if (match) {
                   result.subscriberCount = parseCount(match[1]);
+                  console.log(`[ENRICHMENT STRATEGY 2 - SUBS] Line: "${line}" | Match: "${match[1]}" | Parsed: ${result.subscriberCount}`);
                 }
               }
-
-              // Extract video count
               if (!result.videoCount && line.includes('video')) {
                 const match = line.match(/([\d,.]+[KMB]?)\s*videos?/i);
                 if (match) {
                   result.videoCount = parseCount(match[1]);
+                  console.log(`[ENRICHMENT STRATEGY 2 - VIDEOS] Line: "${line}" | Match: "${match[1]}" | Parsed: ${result.videoCount}`);
                 }
               }
             }
           }
 
-          // Strategy 3: Check table-like structures (Stats section)
-          if (!result.subscriberCount || !result.videoCount) {
-            const tables = document.querySelectorAll('table, .about-stats, #right-column');
-            console.log(`[DEBUG] Found ${tables.length} table/stats elements to check`);
-
-            for (const table of Array.from(tables)) {
-              const text = table.textContent || '';
-
-              if (!result.subscriberCount && text.includes('subscriber')) {
-                const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
-                if (match) {
-                  result.subscriberCount = parseCount(match[1]);
-                  console.log(`[DEBUG] Found subscribers in table: ${match[1]}`);
-                }
-              }
-
-              if (!result.videoCount && text.includes('video')) {
-                const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
-                if (match) {
-                  result.videoCount = parseCount(match[1]);
-                  console.log(`[DEBUG] Found videos in table: ${match[1]}`);
-                }
-              }
-            }
-          }
+          // REMOVED: Strategy 3 - Table structures (0% usage in testing)
+          // Strategy 1 had 100% success rate, making this fallback unnecessary
+          // if (!result.subscriberCount || !result.videoCount) {
+          //   const tables = document.querySelectorAll('table, .about-stats, #right-column');
+          //   for (const table of Array.from(tables)) {
+          //     const text = table.textContent || '';
+          //     if (!result.subscriberCount && text.includes('subscriber')) {
+          //       const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
+          //       if (match) result.subscriberCount = parseCount(match[1]);
+          //     }
+          //     if (!result.videoCount && text.includes('video')) {
+          //       const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
+          //       if (match) result.videoCount = parseCount(match[1]);
+          //     }
+          //   }
+          // }
 
           console.log(
             `[DEBUG] Final extracted stats - Subs: ${result.subscriberCount || 'null'}, Videos: ${result.videoCount || 'null'}`
