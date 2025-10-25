@@ -2,10 +2,15 @@
 	import SearchForm from '$lib/components/search/SearchForm.svelte';
 	import ChannelTable from '$lib/components/results/ChannelTable.svelte';
 	import { channelsStore } from '$lib/stores/channels';
+	import { exportChannelsToCSV } from '$lib/utils/export';
 
 	let activeTab: 'generate' | 'extract' = 'generate';
 
 	$: hasResults = $channelsStore.channels.length > 0;
+
+	function handleExportData() {
+		exportChannelsToCSV($channelsStore.channels);
+	}
 </script>
 
 <div class="mx-auto max-w-7xl">
@@ -121,9 +126,27 @@
 					<p class="mb-6 text-sm text-gray-500">
 						Email extraction will be implemented in Phase 3.
 					</p>
-					<button class="btn btn-primary" disabled>
-						Extract Emails (Coming Soon)
-					</button>
+					<div class="flex justify-center gap-4">
+						<button class="btn btn-primary" disabled>
+							Extract Emails (Coming Soon)
+						</button>
+						<button class="btn btn-secondary" onclick={handleExportData}>
+							<svg
+								class="inline w-5 h-5 mr-2"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+								/>
+							</svg>
+							Export Data (CSV)
+						</button>
+					</div>
 				</div>
 			{:else}
 				<div class="py-12 text-center text-gray-500">
