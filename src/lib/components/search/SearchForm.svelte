@@ -8,6 +8,7 @@
 	// Filter options
 	let minSubscribers: number | undefined = undefined;
 	let maxSubscribers: number | undefined = undefined;
+	let country = '';
 	let excludeMusicChannels = true;
 	let excludeBrands = true;
 	let language = '';
@@ -32,6 +33,7 @@
 					filters: {
 						minSubscribers: minSubscribers || undefined,
 						maxSubscribers: maxSubscribers || undefined,
+						country: country || undefined,
 						excludeMusicChannels,
 						excludeBrands,
 						language: language || undefined
@@ -120,6 +122,7 @@
 		limit = 50;
 		minSubscribers = undefined;
 		maxSubscribers = undefined;
+		country = '';
 		excludeMusicChannels = true;
 		excludeBrands = true;
 		language = '';
@@ -230,6 +233,36 @@
 						/>
 						<span class="ml-2 text-sm text-gray-700">Exclude brand channels</span>
 					</label>
+				</div>
+
+				<!-- Country Filter -->
+				<div>
+					<label for="country" class="block text-sm font-medium text-gray-700 mb-2">
+						Country (optional)
+					</label>
+					<select
+						id="country"
+						bind:value={country}
+						class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					>
+						<option value="">Any country</option>
+						<option value="United States">United States</option>
+						<option value="India">India</option>
+						<option value="United Kingdom">United Kingdom</option>
+						<option value="Canada">Canada</option>
+						<option value="Australia">Australia</option>
+						<option value="Germany">Germany</option>
+						<option value="France">France</option>
+						<option value="Brazil">Brazil</option>
+						<option value="Mexico">Mexico</option>
+						<option value="Japan">Japan</option>
+						<option value="South Korea">South Korea</option>
+						<option value="Spain">Spain</option>
+						<option value="Italy">Italy</option>
+						<option value="Netherlands">Netherlands</option>
+						<option value="Philippines">Philippines</option>
+						<option value="Indonesia">Indonesia</option>
+					</select>
 				</div>
 
 				<!-- Language Filter -->

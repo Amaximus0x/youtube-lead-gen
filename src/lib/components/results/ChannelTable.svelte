@@ -256,13 +256,9 @@
 
 	<div class="mt-4 flex flex-col items-center gap-3">
 		<div class="text-sm text-gray-500 text-center">
-			Showing {channels.length}
-			{#if pagination && pagination.totalChannels > 0}
-				of {pagination.totalChannels}
-			{/if}
-			channel{channels.length !== 1 ? 's' : ''}
-			{#if stats && stats.remaining && stats.remaining > 0}
-				<span class="text-blue-600">({stats.remaining} more available)</span>
+			Showing all {channels.length} channel{channels.length !== 1 ? 's' : ''}
+			{#if stats && stats.keyword}
+				for "{stats.keyword}"
 			{/if}
 		</div>
 

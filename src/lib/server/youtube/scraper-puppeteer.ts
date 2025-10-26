@@ -110,7 +110,199 @@ export class YouTubeScraper {
   async searchChannels(
     keyword: string,
     limit: number = 50,
-    enrichData: boolean = true
+    enrichData: boolean = true,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
+  ): Promise<ChannelSearchResult[]> {
+    // Use Innertube API method for better performance
+    return this.searchChannelsWithInnertube(keyword, limit, filters);
+  }
+
+  /**
+   * Search channels using YouTube Innertube API (continuation tokens)
+   * This is much faster and can retrieve many more results than scrolling
+   */
+  private async searchChannelsWithInnertube(
+    keyword: string,
+    limit: number = 50,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
+  ): Promise<ChannelSearchResult[]> {
+    if (!this.browser) {
+      await this.initialize();
+    }
+
+    const page = await this.browser!.newPage();
+
+    try {
+      const searchQuery = encodeURIComponent(keyword);
+      const url = `https://www.youtube.com/results?search_query=${searchQuery}&sp=EgIQAg%253D%253D`;
+      console.log(`[Innertube] Searching YouTube: ${url}`);
+
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Extract Innertube data
+      const { extractInnertubeData, collectChannelsFromInnertubeData, getContinuationToken, fetchNextPage } = await import('./innertube-scraper');
+      const innertubeData = await extractInnertubeData(page);
+      console.log(`[Innertube] Extracted API key and context`);
+
+      // Collect channels from initial page
+      let allChannels = collectChannelsFromInnertubeData(innertubeData.ytInitialData);
+      console.log(`[Innertube] Found ${allChannels.length} channels in initial page`);
+
+      // Get continuation token
+      let continuation = getContinuationToken(innertubeData.ytInitialData);
+
+      // Fetch more pages using continuation tokens
+      let attempts = 0;
+      const maxAttempts = 20;
+      // If we have filters, get 3x the limit to ensure we have enough after filtering
+      const targetChannels = filters && (filters.minSubscribers || filters.maxSubscribers || filters.country) ? limit * 4 : limit;
+
+      while (allChannels.length < targetChannels && continuation && attempts < maxAttempts) {
+        attempts++;
+        console.log(
+          `[Innertube] Fetching page ${attempts + 1} (have ${allChannels.length} channels, targeting ${targetChannels})`
+        );
+
+        try {
+          const response = await fetchNextPage(
+            page,
+            innertubeData.apiKey,
+            innertubeData.context,
+            continuation
+          );
+
+          const newChannels = collectChannelsFromInnertubeData(response);
+          console.log(`[Innertube] Found ${newChannels.length} new channels in page ${attempts + 1}`);
+
+          // Add unique channels
+          const existingUrls = new Set(allChannels.map((c) => c.url));
+          for (const channel of newChannels) {
+            if (!existingUrls.has(channel.url)) {
+              allChannels.push(channel);
+            }
+          }
+
+          continuation = getContinuationToken(response);
+
+          if (!continuation) {
+            console.log(`[Innertube] No more continuation tokens, stopping`);
+            break;
+          }
+        } catch (error) {
+          console.error(`[Innertube] Error fetching page ${attempts + 1}:`, error);
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+
+      console.log(
+        `[Innertube] Total collected: ${allChannels.length} channels after ${attempts} continuation requests`
+      );
+
+      // Enrich and filter if needed
+      if (filters && (filters.minSubscribers || filters.maxSubscribers || filters.country)) {
+        console.log(`[Filter] Starting batch enrichment and filtering to get ${limit} matching channels...`);
+
+        const matchingChannels: ChannelSearchResult[] = [];
+        const batchSize = 10;
+        let processedCount = 0;
+
+        for (let i = 0; i < allChannels.length && matchingChannels.length < limit; i += batchSize) {
+          const batch = allChannels.slice(i, i + batchSize);
+
+          console.log(
+            `[Filter] Enriching batch ${Math.floor(i / batchSize) + 1} (channels ${i + 1}-${i + batch.length})`
+          );
+
+          try {
+            await this.enrichChannelStats(page, batch);
+          } catch (enrichError) {
+            console.error('Error enriching batch:', enrichError);
+            continue;
+          }
+
+          for (const channel of batch) {
+            processedCount++;
+            const matches = this.channelMatchesFilters(channel, filters);
+
+            if (matches) {
+              matchingChannels.push(channel);
+              console.log(
+                `[Filter] ${matchingChannels.length}/${limit} - ✓ ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+
+              if (matchingChannels.length >= limit) {
+                break;
+              }
+            } else {
+              console.log(
+                `[Filter] ✗ Filtered out: ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+            }
+          }
+        }
+
+        console.log(
+          `[Filter] Result: ${matchingChannels.length} matching channels out of ${processedCount} checked (${allChannels.length} total found)`
+        );
+
+        return matchingChannels;
+      } else {
+        // No filters - just enrich and return
+        const channelsToReturn = allChannels.slice(0, limit);
+
+        if (channelsToReturn.length > 0) {
+          console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
+          try {
+            await this.enrichChannelStats(page, channelsToReturn);
+          } catch (enrichError) {
+            console.error('Error enriching channel stats:', enrichError);
+          }
+        }
+
+        return channelsToReturn;
+      }
+    } catch (error) {
+      console.error('[Innertube] Search error:', error);
+      throw new Error(
+        `Failed to search channels: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    } finally {
+      await page.close();
+    }
+  }
+
+  /**
+   * Legacy scrolling method (kept for reference, not used)
+   */
+  private async searchChannelsWithScrolling(
+    keyword: string,
+    limit: number = 50,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
   ): Promise<ChannelSearchResult[]> {
     if (!this.browser) {
       await this.initialize();
@@ -166,9 +358,12 @@ export class YouTubeScraper {
 
       // Scroll for more results if needed
       let scrollAttempts = 0;
-      const maxScrolls = isServerless ? 3 : 15; // More scrolls to get 50+ channels
+      const maxScrolls = isServerless ? 3 : 30; // Increased to allow for filtering
       let noNewChannelsCount = 0; // Track consecutive failures
       let previousHeight = 0;
+
+      console.log(`[Filter] Active filters: ${JSON.stringify(filters || {})}`);
+      console.log(`[Filter] Target: ${limit} matching channels`);
 
       while (channels.length < limit && scrollAttempts < maxScrolls) {
         // Get current scroll height
@@ -234,22 +429,75 @@ export class YouTubeScraper {
 
       console.log(`Scroll attempts: ${scrollAttempts}, Max allowed: ${maxScrolls}`);
 
-      console.log(`Total found: ${channels.length} channels for keyword: ${keyword}`);
+      console.log(`Total found: ${channels.length} channels (before filtering) for keyword: ${keyword}`);
 
-      // Enrich ALL channels up to the limit to ensure complete data
-      const channelsToReturn = channels.slice(0, limit);
+      // If filters are active, we need to enrich channels in batches and filter as we go
+      if (filters && (filters.minSubscribers || filters.maxSubscribers || filters.country)) {
+        console.log(`[Filter] Starting batch enrichment and filtering to get ${limit} matching channels...`);
 
-      if (channelsToReturn.length > 0) {
-        console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
-        try {
-          await this.enrichChannelStats(page, channelsToReturn);
-        } catch (enrichError) {
-          console.error('Error enriching channel stats:', enrichError);
-          // Continue even if enrichment fails
+        const matchingChannels: ChannelSearchResult[] = [];
+        const batchSize = 10; // Enrich 10 channels at a time
+        let processedCount = 0;
+
+        // Process channels in batches
+        for (let i = 0; i < channels.length && matchingChannels.length < limit; i += batchSize) {
+          const batch = channels.slice(i, i + batchSize);
+
+          console.log(
+            `[Filter] Enriching batch ${Math.floor(i / batchSize) + 1} (channels ${i + 1}-${i + batch.length})`
+          );
+
+          // Enrich this batch
+          try {
+            await this.enrichChannelStats(page, batch);
+          } catch (enrichError) {
+            console.error('Error enriching batch:', enrichError);
+            continue;
+          }
+
+          // Filter the enriched batch
+          for (const channel of batch) {
+            processedCount++;
+            const matches = this.channelMatchesFilters(channel, filters);
+
+            if (matches) {
+              matchingChannels.push(channel);
+              console.log(
+                `[Filter] ${matchingChannels.length}/${limit} - ✓ ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+
+              // Stop once we have enough matching channels
+              if (matchingChannels.length >= limit) {
+                break;
+              }
+            } else {
+              console.log(
+                `[Filter] ✗ Filtered out: ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+            }
+          }
         }
-      }
 
-      return channelsToReturn;
+        console.log(
+          `[Filter] Result: ${matchingChannels.length} matching channels out of ${processedCount} checked (${channels.length} total found)`
+        );
+
+        return matchingChannels;
+      } else {
+        // No subscriber/country filters - just enrich and return
+        const channelsToReturn = channels.slice(0, limit);
+
+        if (channelsToReturn.length > 0) {
+          console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
+          try {
+            await this.enrichChannelStats(page, channelsToReturn);
+          } catch (enrichError) {
+            console.error('Error enriching channel stats:', enrichError);
+          }
+        }
+
+        return channelsToReturn;
+      }
     } catch (error) {
       console.error('Error searching channels:', error);
       throw new Error(
@@ -515,6 +763,151 @@ export class YouTubeScraper {
   private async randomDelay(min: number, max: number): Promise<void> {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
     await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Check if a channel matches the given filters
+   */
+  private channelMatchesFilters(
+    channel: ChannelSearchResult,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
+  ): boolean {
+    if (!filters) return true;
+
+    // Check subscriber range (only if channel has subscriber data)
+    if (channel.subscriberCount !== undefined && channel.subscriberCount !== null) {
+      if (filters.minSubscribers !== undefined && channel.subscriberCount < filters.minSubscribers) {
+        return false;
+      }
+      if (filters.maxSubscribers !== undefined && channel.subscriberCount > filters.maxSubscribers) {
+        return false;
+      }
+    }
+
+    // Check country (strict filtering - exclude if country filter is set but channel has no country)
+    if (filters.country) {
+      if (!channel.country) {
+        // If country filter is active but channel has no country data, exclude it
+        return false;
+      }
+      if (channel.country.toLowerCase() !== filters.country.toLowerCase()) {
+        return false;
+      }
+    }
+
+    // Check music channel exclusion
+    if (filters.excludeMusicChannels && this.isMusicChannel(channel)) {
+      return false;
+    }
+
+    // Check brand channel exclusion
+    if (filters.excludeBrands && this.isBrandChannel(channel)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Detect if channel is a music channel
+   */
+  private isMusicChannel(channel: ChannelSearchResult): boolean {
+    const musicKeywords = [
+      'music',
+      'vevo',
+      'records',
+      'entertainment',
+      'audio',
+      'songs',
+      'official music',
+      'topic',
+      'hits',
+      'soundtrack',
+      'official artist channel'
+    ];
+
+    const lowerName = channel.name.toLowerCase();
+    const lowerDesc = (channel.description || '').toLowerCase();
+
+    for (const keyword of musicKeywords) {
+      if (lowerName.includes(keyword)) {
+        // Exception: channels that have music in context
+        if (
+          lowerName.includes('tutorial') ||
+          lowerName.includes('lesson') ||
+          lowerName.includes('education') ||
+          lowerName.includes('production') ||
+          lowerName.includes('theory')
+        ) {
+          continue;
+        }
+        return true;
+      }
+    }
+
+    if (lowerDesc.includes('official music video') || lowerDesc.includes('vevo')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect if channel is a brand/corporate channel
+   */
+  private isBrandChannel(channel: ChannelSearchResult): boolean {
+    const brandIndicators = [
+      'official',
+      'verified',
+      'corp',
+      'inc.',
+      'llc',
+      'ltd',
+      'company',
+      'corporation',
+      'enterprises',
+      'global',
+      'worldwide',
+      'international'
+    ];
+
+    const lowerName = channel.name.toLowerCase();
+    const lowerDesc = (channel.description || '').toLowerCase();
+
+    for (const indicator of brandIndicators) {
+      if (lowerName.includes(indicator) || lowerDesc.includes(indicator)) {
+        // Exception: personal brands
+        if (
+          lowerDesc.includes('creator') ||
+          lowerDesc.includes('youtuber') ||
+          lowerDesc.includes('content creator') ||
+          lowerDesc.includes('influencer')
+        ) {
+          continue;
+        }
+        return true;
+      }
+    }
+
+    // Check for very high subscriber count (likely brands)
+    if (channel.subscriberCount && channel.subscriberCount > 5000000) {
+      if (
+        lowerDesc.includes('creator') ||
+        lowerDesc.includes('personal') ||
+        lowerName.split(' ').length <= 3
+      ) {
+        return false;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   /**

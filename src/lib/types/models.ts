@@ -268,6 +268,7 @@ export interface ExportRecordUpdate {
 export interface FilterConfig {
   minSubscribers?: number;
   maxSubscribers?: number;
+  country?: string; // Country filter (e.g., "United States", "India")
   excludeMusicChannels: boolean;
   excludeBrands: boolean;
   language?: string;
