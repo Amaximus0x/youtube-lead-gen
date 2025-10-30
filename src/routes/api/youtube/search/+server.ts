@@ -3,7 +3,6 @@ import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
 import { ChannelFilter } from '$lib/server/youtube/filters';
 import { supabase, tables } from '$lib/server/db/supabase';
 import type { FilterConfig, ChannelInsert } from '$lib/types/models';
-import { EnrichmentService } from '$lib/server/queue/enrichment-service';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -17,17 +16,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		console.log(`[API] Searching YouTube for: ${keyword}`);
 
-		// Detect if running in serverless (Vercel)
-		const isServerless = !!process.env.VERCEL;
-
-		// Use faster settings for serverless to avoid timeout
-		// Note: When filters are active, we need more channels to ensure we get enough matches
-		const hasFilters = filters && (filters.minSubscribers || filters.maxSubscribers || filters.country);
-		const searchLimit = isServerless ? Math.min(limit, 30) : limit; // Increased limit for filtering
 		const enableEnrichment = true; // Always enable enrichment (needed for filtering)
-
-		console.log(`[API] Environment: ${isServerless ? 'Serverless' : 'Local'}`);
-		console.log(`[API] Limit: ${searchLimit}, Enrichment: ${enableEnrichment}, Has Filters: ${hasFilters}`);
+		console.log(`[API] Limit: ${limit}, Enrichment: ${enableEnrichment}`);
 
 		// Get scraper instance
 		console.log('[API] Getting scraper instance...');
@@ -44,11 +34,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Search for channels with filters applied during scraping
 		console.log(
-			`[API] Calling searchChannels with keyword="${keyword}", limit=${searchLimit}, enrichData=${enableEnrichment}, filters=${JSON.stringify(scraperFilters)}`
+			`[API] Calling searchChannels with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, filters=${JSON.stringify(scraperFilters)}`
 		);
 		const rawChannels = await scraper.searchChannels(
 			keyword,
-			searchLimit,
+			limit,
 			enableEnrichment,
 			scraperFilters
 		);
@@ -117,14 +107,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					// Don't fail the request if DB save fails
 				} else {
 					console.log(`[API] Saved ${channelsToInsert.length} channels to database`);
-
-					// Queue enrichment jobs for all channels (background processing)
-					if (isServerless) {
-						console.log(`[API] Queueing ${channelsWithScores.length} channels for background enrichment...`);
-						const channelIds = channelsWithScores.map((c) => c.channelId);
-						await EnrichmentService.queueChannels(channelIds, 1);
-						console.log('[API] Enrichment jobs queued successfully');
-					}
 				}
 			} catch (dbError) {
 				console.error('Database error:', dbError);
@@ -150,9 +132,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				pageSize: channelsWithScores.length,
 				totalChannels: channelsWithScores.length,
 				hasMore: false // No more pages needed
-			},
-			// Indicate if enrichment is queued
-			enrichmentQueued: isServerless
+			}
 		});
 	} catch (error) {
 		console.error('[API] Search error:', error);

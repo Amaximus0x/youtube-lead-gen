@@ -32,8 +32,6 @@ export class YouTubeScraper {
   async initialize() {
     if (this.browser) return;
 
-    // Detect if we're running in production (Vercel/serverless) or local
-    const isProduction = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
     const proxyUrl = process.env.PROXY_URL;
 
     // Prepare common args
@@ -50,53 +48,15 @@ export class YouTubeScraper {
       console.log(`Using proxy: ${proxyUrl}`);
     }
 
-    if (isProduction) {
-      // Use @sparticuz/chromium for serverless environments
-      const chromium = (await import('@sparticuz/chromium')).default;
-      const puppeteer = await import('puppeteer-core');
+    // Use regular puppeteer for local development
+    const puppeteer = await import('puppeteer');
 
-      // Configure chromium for serverless
-      const executablePath = await chromium.executablePath();
+    this.browser = await puppeteer.launch({
+      headless: true,
+      args: commonArgs,
+    });
 
-      // Combine chromium's recommended args with our custom args
-      const serverlessArgs = [
-        ...chromium.args,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-blink-features=AutomationControlled',
-        '--single-process',
-        '--no-zygote',
-      ];
-
-      // Add proxy if configured
-      if (proxyUrl) {
-        serverlessArgs.push(`--proxy-server=${proxyUrl}`);
-        console.log(`Using proxy: ${proxyUrl}`);
-      }
-
-      console.log('Launching Chromium in serverless mode...');
-      console.log('Executable path:', executablePath);
-
-      this.browser = await puppeteer.launch({
-        args: serverlessArgs,
-        defaultViewport: chromium.defaultViewport,
-        executablePath,
-        headless: chromium.headless,
-      });
-
-      console.log('YouTube scraper initialized (serverless mode)');
-    } else {
-      // Use regular puppeteer for local development
-      const puppeteer = await import('puppeteer');
-
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: commonArgs,
-      });
-
-      console.log('YouTube scraper initialized (local mode)');
-    }
+    console.log('YouTube scraper initialized');
   }
 
   async close() {
@@ -171,8 +131,9 @@ export class YouTubeScraper {
       // Fetch more pages using continuation tokens
       let attempts = 0;
       const maxAttempts = 20;
-      // If we have filters, get 3x the limit to ensure we have enough after filtering
-      const targetChannels = filters && (filters.minSubscribers || filters.maxSubscribers || filters.country) ? limit * 4 : limit;
+      // If we have filters, get 5x the limit to ensure we have enough after filtering
+      // (accounting for both filtering and enrichment failures)
+      const targetChannels = filters && (filters.minSubscribers || filters.maxSubscribers || filters.country) ? limit * 5 : limit;
 
       while (allChannels.length < targetChannels && continuation && attempts < maxAttempts) {
         attempts++;
@@ -233,7 +194,7 @@ export class YouTubeScraper {
           );
 
           try {
-            await this.enrichChannelStats(page, batch);
+            await this.enrichChannelStats(page, batch, true); // Pass retry flag for filters
           } catch (enrichError) {
             console.error('Error enriching batch:', enrichError);
             continue;
@@ -241,6 +202,15 @@ export class YouTubeScraper {
 
           for (const channel of batch) {
             processedCount++;
+
+            // Skip channels that failed enrichment (no subscriber data)
+            if (channel.subscriberCount === undefined || channel.subscriberCount === null) {
+              console.log(
+                `[Filter] ⚠ Skipped: ${channel.name} (failed to get subscriber count)`
+              );
+              continue;
+            }
+
             const matches = this.channelMatchesFilters(channel, filters);
 
             if (matches) {
@@ -310,10 +280,7 @@ export class YouTubeScraper {
 
     const page = await this.browser!.newPage();
     const channels: ChannelSearchResult[] = [];
-
-    // Detect if running in serverless
-    const isServerless = !!process.env.VERCEL;
-    const waitTime = isServerless ? 500 : 1500; // Faster on serverless
+    const waitTime = 1500;
 
     try {
       // Set user agent to avoid detection
@@ -358,7 +325,7 @@ export class YouTubeScraper {
 
       // Scroll for more results if needed
       let scrollAttempts = 0;
-      const maxScrolls = isServerless ? 3 : 30; // Increased to allow for filtering
+      const maxScrolls = 30; // Increased to allow for filtering
       let noNewChannelsCount = 0; // Track consecutive failures
       let previousHeight = 0;
 
@@ -383,7 +350,7 @@ export class YouTubeScraper {
 
         // Wait for YouTube to load more content
         // Increase wait time significantly for more reliable loading
-        await new Promise((resolve) => setTimeout(resolve, isServerless ? 1500 : 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
 
         // Check if page height increased (indicates new content loaded)
         const newHeight = await page.evaluate(() => document.body.scrollHeight);
@@ -449,7 +416,7 @@ export class YouTubeScraper {
 
           // Enrich this batch
           try {
-            await this.enrichChannelStats(page, batch);
+            await this.enrichChannelStats(page, batch, true); // Pass retry flag for filters
           } catch (enrichError) {
             console.error('Error enriching batch:', enrichError);
             continue;
@@ -458,6 +425,15 @@ export class YouTubeScraper {
           // Filter the enriched batch
           for (const channel of batch) {
             processedCount++;
+
+            // Skip channels that failed enrichment (no subscriber data)
+            if (channel.subscriberCount === undefined || channel.subscriberCount === null) {
+              console.log(
+                `[Filter] ⚠ Skipped: ${channel.name} (failed to get subscriber count)`
+              );
+              continue;
+            }
+
             const matches = this.channelMatchesFilters(channel, filters);
 
             if (matches) {
@@ -914,45 +890,52 @@ export class YouTubeScraper {
    * Enrich channels with accurate subscriber and video counts from /about pages
    * This is a lightweight version that ONLY gets stats, not emails or social links
    */
-  private async enrichChannelStats(page: Page, channels: ChannelSearchResult[]): Promise<void> {
-    const isServerless = !!process.env.VERCEL;
-    const delay = isServerless ? 500 : 1000; // Faster on serverless
+  private async enrichChannelStats(page: Page, channels: ChannelSearchResult[], retryOnFailure: boolean = false): Promise<void> {
+    const delay = 1000;
+    const maxRetries = retryOnFailure ? 2 : 0; // Retry up to 2 times when filters are active
 
     for (let i = 0; i < channels.length; i++) {
       const channel = channels[i];
+      let retryCount = 0;
+      let enrichmentSuccess = false;
 
-      try {
-        console.log(`[Stats ${i + 1}/${channels.length}] Fetching stats for: ${channel.name}`);
-
-        // Visit /about page
-        const aboutUrl = channel.url.endsWith('/') ? `${channel.url}about` : `${channel.url}/about`;
-
-        // Listen to browser console logs
-        page.on('console', (msg) => {
-          const text = msg.text();
-          if (text.includes('[DEBUG]')) {
-            console.log(`  ${text}`);
+      while (!enrichmentSuccess && retryCount <= maxRetries) {
+        try {
+          if (retryCount > 0) {
+            console.log(`[Stats ${i + 1}/${channels.length}] Retry ${retryCount}/${maxRetries} for: ${channel.name}`);
+          } else {
+            console.log(`[Stats ${i + 1}/${channels.length}] Fetching stats for: ${channel.name}`);
           }
-        });
 
-        await page.goto(aboutUrl, {
-          waitUntil: 'networkidle0',
-          timeout: 15000,
-        });
+          // Visit /about page
+          const aboutUrl = channel.url.endsWith('/') ? `${channel.url}about` : `${channel.url}/about`;
 
-        // Wait for the page to fully load and render
-        await new Promise((resolve) => setTimeout(resolve, delay * 2));
+          // Listen to browser console logs
+          page.on('console', (msg) => {
+            const text = msg.text();
+            if (text.includes('[DEBUG]')) {
+              console.log(`  ${text}`);
+            }
+          });
 
-        // Scroll down to trigger lazy-loaded content
-        await page.evaluate(() => {
-          window.scrollTo(0, document.body.scrollHeight / 2);
-        });
-        await new Promise((resolve) => setTimeout(resolve, 500));
+          await page.goto(aboutUrl, {
+            waitUntil: 'networkidle0',
+            timeout: 20000, // Increased timeout
+          });
 
-        await page.evaluate(() => {
-          window.scrollTo(0, document.body.scrollHeight);
-        });
-        await new Promise((resolve) => setTimeout(resolve, 500));
+          // Wait for the page to fully load and render
+          await new Promise((resolve) => setTimeout(resolve, delay * 2));
+
+          // Scroll down to trigger lazy-loaded content
+          await page.evaluate(() => {
+            window.scrollTo(0, document.body.scrollHeight / 2);
+          });
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          await page.evaluate(() => {
+            window.scrollTo(0, document.body.scrollHeight);
+          });
+          await new Promise((resolve) => setTimeout(resolve, 500));
 
         // Extract subscriber and video count using multiple strategies
         const stats = await page.evaluate(() => {
@@ -1468,16 +1451,39 @@ export class YouTubeScraper {
           channel.socialLinks = stats.socialLinks;
         }
 
-        console.log(
-          `[Stats ${i + 1}/${channels.length}] ${channel.name}: ${channel.subscriberCount || 'Unknown'} subs, ${channel.videoCount || 'Unknown'} videos, ${channel.viewCount || 'Unknown'} views, country: ${channel.country || 'Unknown'}, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
-        );
+        // Check if enrichment was successful (got subscriber count)
+        if (channel.subscriberCount !== undefined && channel.subscriberCount !== null) {
+          enrichmentSuccess = true;
+          console.log(
+            `[Stats ${i + 1}/${channels.length}] ✓ ${channel.name}: ${channel.subscriberCount.toLocaleString()} subs, ${channel.videoCount || 'Unknown'} videos, ${channel.viewCount || 'Unknown'} views, country: ${channel.country || 'Unknown'}, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
+          );
+        } else {
+          console.log(
+            `[Stats ${i + 1}/${channels.length}] ⚠ Failed to get subscriber count for ${channel.name}`
+          );
+          retryCount++;
+          if (retryCount > maxRetries) {
+            console.log(
+              `[Stats ${i + 1}/${channels.length}] ✗ Max retries reached for ${channel.name}, skipping`
+            );
+          }
+        }
       } catch (error) {
         console.error(
           `[Stats ${i + 1}/${channels.length}] Error fetching stats for ${channel.name}:`,
           error
         );
-        // Continue with next channel
+        retryCount++;
+        if (retryCount > maxRetries) {
+          console.log(
+            `[Stats ${i + 1}/${channels.length}] ✗ Max retries reached for ${channel.name}, skipping`
+          );
+        } else {
+          // Wait before retry
+          await new Promise((resolve) => setTimeout(resolve, delay * 2));
+        }
       }
+      } // End while loop
 
       // Small delay between requests to avoid rate limiting
       if (i < channels.length - 1) {
