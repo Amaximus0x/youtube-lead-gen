@@ -108,6 +108,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									}
 
 									const statsElements = document.querySelectorAll('yt-formatted-string');
+									console.log(`[LOAD-MORE EXTRACTION] Found ${statsElements.length} yt-formatted-string elements`);
 									for (const el of Array.from(statsElements)) {
 										const text = el.textContent?.trim() || '';
 
@@ -115,6 +116,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
 											if (match) {
 												result.subscriberCount = parseCount(match[1]);
+												console.log(`[LOAD-MORE - SUBS] Text: "${text}" | Match: "${match[1]}" | Parsed: ${result.subscriberCount}`);
 											}
 										}
 
@@ -122,10 +124,12 @@ export const POST: RequestHandler = async ({ request }) => {
 											const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
 											if (match) {
 												result.videoCount = parseCount(match[1]);
+												console.log(`[LOAD-MORE - VIDEOS] Text: "${text}" | Match: "${match[1]}" | Parsed: ${result.videoCount}`);
 											}
 										}
 									}
 
+									console.log(`[LOAD-MORE EXTRACTION] Final stats - Subs: ${result.subscriberCount || 'null'}, Videos: ${result.videoCount || 'null'}`);
 									return result;
 								});
 

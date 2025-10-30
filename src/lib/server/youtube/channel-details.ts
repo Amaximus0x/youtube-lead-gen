@@ -62,6 +62,7 @@ export async function getChannelDetails(page: Page, channelUrl: string): Promise
 			// Method 1: Parse the channel header format
 			// Format: "@GameTechReviews • 18.2K subscribers • 1.7K videos"
 			// This appears in the first few lines of the page
+			console.log(`[CHANNEL-DETAILS METHOD 1] Parsing first 20 lines for header format`);
 			for (let i = 0; i < Math.min(20, lines.length); i++) {
 				const line = lines[i];
 
@@ -71,61 +72,65 @@ export async function getChannelDetails(page: Page, channelUrl: string): Promise
 					const subMatch = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
 					if (subMatch && !result.subscriberCount) {
 						result.subscriberCount = parseCount(subMatch[1]);
+						console.log(`[CHANNEL-DETAILS METHOD 1 - SUBS] Line: "${line}" | Match: "${subMatch[1]}" | Parsed: ${result.subscriberCount}`);
 					}
 
 					// Extract videos: "1.7K videos"
 					const vidMatch = line.match(/([\d,.]+[KMB]?)\s*videos?/i);
 					if (vidMatch && !result.videoCount) {
 						result.videoCount = parseCount(vidMatch[1]);
+						console.log(`[CHANNEL-DETAILS METHOD 1 - VIDEOS] Line: "${line}" | Match: "${vidMatch[1]}" | Parsed: ${result.videoCount}`);
 					}
 
 					// If we found both, we're done
 					if (result.subscriberCount && result.videoCount) {
+						console.log(`[CHANNEL-DETAILS METHOD 1] Successfully found both stats`);
 						break;
 					}
 				}
 			}
 
-			// Method 2: Try to find subscriber count in the metadata span elements
-			if (!result.subscriberCount) {
-				const subscriberEl = document.querySelector('#subscriber-count');
-				if (subscriberEl) {
-					const text = subscriberEl.textContent?.trim() || '';
-					result.subscriberCount = parseCount(text);
-				}
-			}
+			// REMOVED: Method 2 - #subscriber-count element (fallback not needed)
+			// Method 1 has high success rate on /videos page
+			// if (!result.subscriberCount) {
+			//   const subscriberEl = document.querySelector('#subscriber-count');
+			//   if (subscriberEl) {
+			//     const text = subscriberEl.textContent?.trim() || '';
+			//     result.subscriberCount = parseCount(text);
+			//   }
+			// }
 
-			// Method 3: Search for subscriber pattern separately
-			if (!result.subscriberCount) {
-				for (let i = 0; i < Math.min(100, lines.length); i++) {
-					const line = lines[i];
-					// Match "18.2K subscribers" or "1.9 M subscribers"
-					const match = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
-					if (match) {
-						const count = parseCount(match[1]);
-						if (count && count > 0 && count < 10000000000) {
-							result.subscriberCount = count;
-							break;
-						}
-					}
-				}
-			}
+			// REMOVED: Method 3 - Line-by-line subscriber search (fallback not needed)
+			// Method 1 has high success rate
+			// if (!result.subscriberCount) {
+			//   for (let i = 0; i < Math.min(100, lines.length); i++) {
+			//     const line = lines[i];
+			//     const match = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
+			//     if (match) {
+			//       const count = parseCount(match[1]);
+			//       if (count && count > 0 && count < 10000000000) {
+			//         result.subscriberCount = count;
+			//         break;
+			//       }
+			//     }
+			//   }
+			// }
 
-			// Method 4: Search for video count separately
-			if (!result.videoCount) {
-				for (let i = 0; i < Math.min(150, lines.length); i++) {
-					const line = lines[i];
-					// Match "1.7K videos" or "688 videos"
-					const match = line.match(/([\d,.]+[KMB]?)\s*videos?/i);
-					if (match) {
-						const count = parseCount(match[1]);
-						if (count && count > 0 && count < 100000) {
-							result.videoCount = count;
-							break;
-						}
-					}
-				}
-			}
+			// REMOVED: Method 4 - Line-by-line video search (fallback not needed)
+			// Method 1 has high success rate
+			// if (!result.videoCount) {
+			//   for (let i = 0; i < Math.min(150, lines.length); i++) {
+			//     const line = lines[i];
+			//     const match = line.match(/([\d,.]+[KMB]?)\s*videos?/i);
+			//     if (match) {
+			//       const count = parseCount(match[1]);
+			//       if (count && count > 0 && count < 100000) {
+			//         result.videoCount = count;
+			//         break;
+			//       }
+			//     }
+			//   }
+			// }
 
 			// Method 5: Try to get description from About tab metadata
 			const metaDesc = document.querySelector('meta[name="description"]') as HTMLMetaElement;

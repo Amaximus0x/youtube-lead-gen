@@ -3,7 +3,6 @@ import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
 import { ChannelFilter } from '$lib/server/youtube/filters';
 import { supabase, tables } from '$lib/server/db/supabase';
 import type { FilterConfig, ChannelInsert } from '$lib/types/models';
-import { EnrichmentService } from '$lib/server/queue/enrichment-service';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -17,29 +16,39 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		console.log(`[API] Searching YouTube for: ${keyword}`);
 
-		// Detect if running in serverless (Vercel)
-		const isServerless = !!process.env.VERCEL;
-
-		// Use faster settings for serverless to avoid timeout
-		const searchLimit = isServerless ? Math.min(limit, 20) : limit; // Max 20 on serverless
-		const enableEnrichment = !isServerless; // Disable enrichment on serverless for speed
-
-		console.log(`[API] Environment: ${isServerless ? 'Serverless' : 'Local'}`);
-		console.log(`[API] Limit: ${searchLimit}, Enrichment: ${enableEnrichment}`);
+		const enableEnrichment = true; // Always enable enrichment (needed for filtering)
+		console.log(`[API] Limit: ${limit}, Enrichment: ${enableEnrichment}`);
 
 		// Get scraper instance
 		console.log('[API] Getting scraper instance...');
 		const scraper = await getScraperInstance();
 
-		// Search for channels (enrichment disabled on serverless for performance)
-		console.log(`[API] Calling searchChannels with keyword="${keyword}", limit=${searchLimit}, enrichData=${enableEnrichment}`);
-		const rawChannels = await scraper.searchChannels(keyword, searchLimit, enableEnrichment);
+		// Prepare filters for the scraper
+		const scraperFilters = {
+			minSubscribers: filters?.minSubscribers,
+			maxSubscribers: filters?.maxSubscribers,
+			country: filters?.country,
+			excludeMusicChannels: filters?.excludeMusicChannels ?? false,
+			excludeBrands: filters?.excludeBrands ?? false
+		};
 
-		// Apply filters
+		// Search for channels with filters applied during scraping
+		console.log(
+			`[API] Calling searchChannels with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, filters=${JSON.stringify(scraperFilters)}`
+		);
+		const rawChannels = await scraper.searchChannels(
+			keyword,
+			limit,
+			enableEnrichment,
+			scraperFilters
+		);
+
+		// Apply remaining filters that couldn't be applied during scraping (like language)
 		const filter = new ChannelFilter();
 		const filterConfig: FilterConfig = {
 			minSubscribers: filters?.minSubscribers,
 			maxSubscribers: filters?.maxSubscribers,
+			country: filters?.country,
 			excludeMusicChannels: filters?.excludeMusicChannels ?? false,
 			excludeBrands: filters?.excludeBrands ?? false,
 			language: filters?.language,
@@ -47,7 +56,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			engagementThreshold: filters?.engagementThreshold
 		};
 
-		const filteredChannels = filter.applyFilters(rawChannels, filterConfig);
+		// Only apply language filter here (other filters already applied)
+		let filteredChannels = rawChannels;
+		if (filters?.language) {
+			filteredChannels = filter.applyFilters(rawChannels, {
+				...filterConfig,
+				minSubscribers: undefined, // Already filtered
+				maxSubscribers: undefined, // Already filtered
+				country: undefined, // Already filtered
+				excludeMusicChannels: false, // Already filtered
+				excludeBrands: false // Already filtered
+			});
+		}
 
 		// Calculate relevance scores
 		const channelsWithScores = filteredChannels.map((channel) => ({
@@ -87,14 +107,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					// Don't fail the request if DB save fails
 				} else {
 					console.log(`[API] Saved ${channelsToInsert.length} channels to database`);
-
-					// Queue enrichment jobs for all channels (background processing)
-					if (isServerless) {
-						console.log(`[API] Queueing ${channelsWithScores.length} channels for background enrichment...`);
-						const channelIds = channelsWithScores.map((c) => c.channelId);
-						await EnrichmentService.queueChannels(channelIds, 1);
-						console.log('[API] Enrichment jobs queued successfully');
-					}
 				}
 			} catch (dbError) {
 				console.error('Database error:', dbError);
@@ -102,29 +114,25 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		}
 
-		// Return only first 15 channels for initial display
-		const initialBatchSize = 15;
-		const initialChannels = channelsWithScores.slice(0, initialBatchSize);
-		const hasMore = channelsWithScores.length > initialBatchSize;
+		// Return ALL channels immediately (no pagination needed since we already filtered to limit)
+		console.log(`[API] Returning ${channelsWithScores.length} channels to client`);
 
 		return json({
 			success: true,
-			channels: initialChannels,
+			channels: channelsWithScores, // Return all channels
 			stats: {
-				total: rawChannels.length,
-				filtered: filteredChannels.length,
+				total: filteredChannels.length, // Total matching channels (already filtered)
+				filtered: filteredChannels.length, // Same as total since filtering is done during scraping
 				keyword,
-				displayed: initialChannels.length,
-				remaining: channelsWithScores.length - initialChannels.length
+				displayed: channelsWithScores.length,
+				remaining: 0 // No remaining since we return all
 			},
 			pagination: {
 				currentPage: 1,
-				pageSize: initialBatchSize,
+				pageSize: channelsWithScores.length,
 				totalChannels: channelsWithScores.length,
-				hasMore
-			},
-			// Indicate if enrichment is queued
-			enrichmentQueued: isServerless
+				hasMore: false // No more pages needed
+			}
 		});
 	} catch (error) {
 		console.error('[API] Search error:', error);
