@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
+	import { apiPost } from '$lib/api/client';
 	import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
 
 	$: channels = $channelsStore.channels;
@@ -16,21 +17,11 @@
 		channelsStore.setLoadingMore(true);
 
 		try {
-			const response = await fetch('/api/youtube/load-more', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					keyword: stats.keyword,
-					page: pagination.currentPage + 1,
-					pageSize: pagination.pageSize
-				})
+			const data = await apiPost<any>('/api/youtube/load-more', {
+				keyword: stats.keyword,
+				page: pagination.currentPage + 1,
+				pageSize: pagination.pageSize
 			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.message || data.error || 'Failed to load more');
-			}
 
 			channelsStore.appendChannels(data.channels, data.pagination);
 		} catch (error) {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
+	import { apiPost } from '$lib/api/client';
 
 	let keyword = '';
 	let limit = 50;
@@ -11,7 +12,6 @@
 	let country = '';
 	let excludeMusicChannels = true;
 	let excludeBrands = true;
-	let language = '';
 
 	async function handleSearch() {
 		if (!keyword.trim()) {
@@ -22,30 +22,17 @@
 		channelsStore.setSearching(true);
 
 		try {
-			const response = await fetch('/api/youtube/search', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					keyword: keyword.trim(),
-					limit,
-					filters: {
-						minSubscribers: minSubscribers || undefined,
-						maxSubscribers: maxSubscribers || undefined,
-						country: country || undefined,
-						excludeMusicChannels,
-						excludeBrands,
-						language: language || undefined
-					}
-				})
+			const data = await apiPost<any>('/api/youtube/search', {
+				keyword: keyword.trim(),
+				limit,
+				filters: {
+					minSubscribers: minSubscribers || undefined,
+					maxSubscribers: maxSubscribers || undefined,
+					country: country || undefined,
+					excludeMusicChannels,
+					excludeBrands,
+				}
 			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.message || data.error || 'Search failed');
-			}
 
 			channelsStore.setChannels(data.channels, data.stats, data.pagination);
 
@@ -75,15 +62,7 @@
 		// Poll every 10 seconds
 		enrichmentPollingInterval = setInterval(async () => {
 			try {
-				const response = await fetch('/api/youtube/enrichment-status', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ channelIds })
-				});
-
-				const data = await response.json();
+				const data = await apiPost<any>('/api/youtube/enrichment-status', { channelIds });
 
 				if (data.success && data.statuses) {
 					// Update channels with enrichment data
@@ -125,18 +104,17 @@
 		country = '';
 		excludeMusicChannels = true;
 		excludeBrands = true;
-		language = '';
 		channelsStore.reset();
 	}
 </script>
 
-<div class="bg-white p-6 rounded-lg shadow-md">
-	<h2 class="text-2xl font-bold mb-4 text-gray-800">Search YouTube Channels</h2>
+<div class="p-6 bg-white rounded-lg shadow-md">
+	<h2 class="mb-4 text-2xl font-bold text-gray-800">Search YouTube Channels</h2>
 
 	<form on:submit|preventDefault={handleSearch} class="space-y-4">
 		<!-- Keyword Input -->
 		<div>
-			<label for="keyword" class="block text-sm font-medium text-gray-700 mb-2">
+			<label for="keyword" class="block mb-2 text-sm font-medium text-gray-700">
 				Keyword or Niche *
 			</label>
 			<input
@@ -152,16 +130,16 @@
 
 		<!-- Limit Input -->
 		<div>
-			<label for="limit" class="block text-sm font-medium text-gray-700 mb-2">
+			<label for="limit" class="block mb-2 text-sm font-medium text-gray-700">
 				Number of Results
 			</label>
 			<input
 				type="number"
 				id="limit"
 				bind:value={limit}
-				min="10"
+				min="5"
 				max="100"
-				step="10"
+				step="5"
 				class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 			/>
 		</div>
@@ -170,7 +148,7 @@
 		<button
 			type="button"
 			on:click={() => (showAdvanced = !showAdvanced)}
-			class="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-2"
+			class="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800"
 		>
 			<svg
 				class="w-4 h-4 transform transition-transform {showAdvanced ? 'rotate-90' : ''}"
@@ -189,7 +167,7 @@
 				<!-- Subscriber Range -->
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label for="minSubs" class="block text-sm font-medium text-gray-700 mb-2">
+						<label for="minSubs" class="block mb-2 text-sm font-medium text-gray-700">
 							Min Subscribers
 						</label>
 						<input
@@ -201,7 +179,7 @@
 						/>
 					</div>
 					<div>
-						<label for="maxSubs" class="block text-sm font-medium text-gray-700 mb-2">
+						<label for="maxSubs" class="block mb-2 text-sm font-medium text-gray-700">
 							Max Subscribers
 						</label>
 						<input
@@ -220,7 +198,7 @@
 						<input
 							type="checkbox"
 							bind:checked={excludeMusicChannels}
-							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+							class="text-blue-600 border-gray-300 rounded focus:ring-blue-500"
 						/>
 						<span class="ml-2 text-sm text-gray-700">Exclude music channels</span>
 					</label>
@@ -229,7 +207,7 @@
 						<input
 							type="checkbox"
 							bind:checked={excludeBrands}
-							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+							class="text-blue-600 border-gray-300 rounded focus:ring-blue-500"
 						/>
 						<span class="ml-2 text-sm text-gray-700">Exclude brand channels</span>
 					</label>
@@ -237,7 +215,7 @@
 
 				<!-- Country Filter -->
 				<div>
-					<label for="country" class="block text-sm font-medium text-gray-700 mb-2">
+					<label for="country" class="block mb-2 text-sm font-medium text-gray-700">
 						Country (optional)
 					</label>
 					<select
@@ -266,8 +244,8 @@
 				</div>
 
 				<!-- Language Filter -->
-				<div>
-					<label for="language" class="block text-sm font-medium text-gray-700 mb-2">
+				<!-- <div>
+					<label for="language" class="block mb-2 text-sm font-medium text-gray-700">
 						Language (optional)
 					</label>
 					<select
@@ -282,7 +260,7 @@
 						<option value="de">German</option>
 						<option value="pt">Portuguese</option>
 					</select>
-				</div>
+				</div> -->
 			</div>
 		{/if}
 
@@ -291,10 +269,10 @@
 			<button
 				type="submit"
 				disabled={$channelsStore.isSearching}
-				class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+				class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
 			>
 				{#if $channelsStore.isSearching}
-					<svg class="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+					<svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
 						<circle
 							class="opacity-25"
 							cx="12"
@@ -327,7 +305,7 @@
 			<button
 				type="button"
 				on:click={handleReset}
-				class="px-6 py-3 border border-gray-300 rounded-md font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+				class="px-6 py-3 font-semibold text-gray-700 transition-colors border border-gray-300 rounded-md hover:bg-gray-50"
 			>
 				Reset
 			</button>
@@ -336,9 +314,9 @@
 
 	<!-- Error Display -->
 	{#if $channelsStore.error}
-		<div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+		<div class="p-4 mt-4 border border-red-200 rounded-md bg-red-50">
 			<div class="flex items-center">
-				<svg class="w-5 h-5 text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+				<svg class="w-5 h-5 mr-2 text-red-400" fill="currentColor" viewBox="0 0 20 20">
 					<path
 						fill-rule="evenodd"
 						d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
