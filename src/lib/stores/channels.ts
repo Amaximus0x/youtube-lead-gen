@@ -1,24 +1,13 @@
 import { writable } from 'svelte/store';
-import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
+import type { ChannelSearchResult, SearchStats, Pagination } from '$lib/types/api';
 
 export interface SearchState {
 	isSearching: boolean;
 	isLoadingMore: boolean;
-	channels: Array<ChannelSearchResult & { relevanceScore: number }>;
+	channels: ChannelSearchResult[];
 	error: string | null;
-	stats: {
-		total: number;
-		filtered: number;
-		keyword: string;
-		displayed?: number;
-		remaining?: number;
-	} | null;
-	pagination: {
-		currentPage: number;
-		pageSize: number;
-		totalChannels: number;
-		hasMore: boolean;
-	} | null;
+	stats: SearchStats | null;
+	pagination: Pagination | null;
 }
 
 const initialState: SearchState = {
@@ -39,9 +28,9 @@ function createChannelsStore() {
 			update((state) => ({ ...state, isSearching, error: null }));
 		},
 		setChannels: (
-			channels: Array<ChannelSearchResult & { relevanceScore: number }>,
-			stats: SearchState['stats'],
-			pagination: SearchState['pagination']
+			channels: ChannelSearchResult[],
+			stats: SearchStats | null,
+			pagination: Pagination | null
 		) => {
 			update((state) => ({
 				...state,
@@ -53,8 +42,8 @@ function createChannelsStore() {
 			}));
 		},
 		appendChannels: (
-			channels: Array<ChannelSearchResult & { relevanceScore: number }>,
-			pagination: SearchState['pagination']
+			channels: ChannelSearchResult[],
+			pagination: Pagination | null
 		) => {
 			update((state) => ({
 				...state,

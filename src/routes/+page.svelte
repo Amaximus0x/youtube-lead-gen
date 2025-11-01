@@ -91,7 +91,7 @@
 							/>
 						</svg>
 						<p class="text-lg text-gray-600">Searching YouTube channels...</p>
-						<p class="mt-2 text-sm text-gray-500">This may take 10-30 seconds</p>
+						<p class="mt-2 text-sm text-gray-500">This may take some time</p>
 					</div>
 				{:else}
 					<ChannelTable />

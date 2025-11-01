@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
 	import { apiPost } from '$lib/api/client';
-	import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
+	import type { ChannelSearchResult } from '$lib/types/api';
 
 	$: channels = $channelsStore.channels;
 	$: stats = $channelsStore.stats;
@@ -14,22 +14,26 @@
 	async function loadMore() {
 		if (!pagination || !pagination.hasMore || isLoadingMore || !stats) return;
 
-		channelsStore.setLoadingMore(true);
+		// Note: Load more functionality requires backend endpoint implementation
+		// The backend currently returns only the first 15 channels
+		// TODO: Implement /youtube/load-more endpoint in backend
+		alert('Load more functionality is not yet implemented in the backend. All available channels are already displayed.');
 
-		try {
-			const data = await apiPost<any>('/api/youtube/load-more', {
-				keyword: stats.keyword,
-				page: pagination.currentPage + 1,
-				pageSize: pagination.pageSize
-			});
-
-			channelsStore.appendChannels(data.channels, data.pagination);
-		} catch (error) {
-			console.error('Load more error:', error);
-			channelsStore.setError(
-				error instanceof Error ? error.message : 'Failed to load more channels'
-			);
-		}
+		// Uncomment when backend endpoint is ready:
+		// channelsStore.setLoadingMore(true);
+		// try {
+		// 	const data = await apiPost<any>('/youtube/load-more', {
+		// 		keyword: stats.keyword,
+		// 		page: pagination.currentPage + 1,
+		// 		pageSize: pagination.pageSize
+		// 	});
+		// 	channelsStore.appendChannels(data.channels, data.pagination);
+		// } catch (error) {
+		// 	console.error('Load more error:', error);
+		// 	channelsStore.setError(
+		// 		error instanceof Error ? error.message : 'Failed to load more channels'
+		// 	);
+		// }
 	}
 
 	function formatSubscribers(count: number | undefined): string {

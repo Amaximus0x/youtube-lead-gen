@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
 	import { apiPost } from '$lib/api/client';
+	import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
 
 	let keyword = '';
 	let limit = 50;
@@ -14,15 +15,19 @@
 	let excludeBrands = true;
 
 	async function handleSearch() {
+		// Validate input
 		if (!keyword.trim()) {
-			alert('Please enter a keyword');
+			channelsStore.setError('Please enter a keyword');
 			return;
 		}
 
+		// Reset error state and set searching state
 		channelsStore.setSearching(true);
 
 		try {
-			const data = await apiPost<any>('/api/youtube/search', {
+			console.log('[Search] Starting search for:', keyword.trim());
+
+			const requestBody: SearchRequest = {
 				keyword: keyword.trim(),
 				limit,
 				filters: {
@@ -32,20 +37,49 @@
 					excludeMusicChannels,
 					excludeBrands,
 				}
-			});
+			};
 
-			channelsStore.setChannels(data.channels, data.stats, data.pagination);
+			const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', requestBody);
 
-			// If enrichment is queued, start polling for updates
-			if (data.enrichmentQueued && data.channels.length > 0) {
-				const channelIds = data.channels.map((c: any) => c.channelId);
-				startEnrichmentPolling(channelIds);
+			console.log('[Search] Response received:', response);
+
+			// Backend returns { status: "success", data: { channels, stats, pagination, enrichmentQueued } }
+			if (response.status === 'success' && response.data) {
+				const { channels, stats, pagination, enrichmentQueued } = response.data;
+
+				// Validate response data
+				if (!channels || !Array.isArray(channels)) {
+					throw new Error('Invalid response format: channels data is missing or invalid');
+				}
+
+				console.log('[Search] Found', channels.length, 'channels');
+
+				// Update store with successful data
+				channelsStore.setChannels(channels, stats, pagination);
+
+				// If enrichment is queued, start polling for updates
+				if (enrichmentQueued && channels.length > 0) {
+					const channelIds = channels.map((c) => c.channelId);
+					console.log('[Search] Starting enrichment polling for', channelIds.length, 'channels');
+					startEnrichmentPolling(channelIds);
+				}
+			} else {
+				// This shouldn't happen if the API client is working correctly, but just in case
+				throw new Error('Unexpected response format from server');
 			}
 		} catch (error) {
-			console.error('Search error:', error);
-			channelsStore.setError(
-				error instanceof Error ? error.message : 'An error occurred while searching'
-			);
+			console.error('[Search] Error:', error);
+
+			// Set error state with a user-friendly message
+			const errorMessage = error instanceof Error
+				? error.message
+				: 'An unexpected error occurred while searching';
+
+			channelsStore.setError(errorMessage);
+		} finally {
+			// Always reset searching state, even if there's an error
+			// This is handled in the catch block via setError, but we ensure it here too
+			console.log('[Search] Search completed');
 		}
 	}
 
@@ -62,7 +96,7 @@
 		// Poll every 10 seconds
 		enrichmentPollingInterval = setInterval(async () => {
 			try {
-				const data = await apiPost<any>('/api/youtube/enrichment-status', { channelIds });
+				const data = await apiPost<any>('/enrichment/status', { channelIds });
 
 				if (data.success && data.statuses) {
 					// Update channels with enrichment data
