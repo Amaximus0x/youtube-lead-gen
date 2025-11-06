@@ -1,39 +1,48 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
-	import { apiPost } from '$lib/api/client';
+	import { fetchPage } from '$lib/api/pagination';
+	import Pagination from '$lib/components/common/Pagination.svelte';
 	import type { ChannelSearchResult } from '$lib/types/api';
 
 	$: channels = $channelsStore.channels;
 	$: stats = $channelsStore.stats;
 	$: pagination = $channelsStore.pagination;
 	$: isLoadingMore = $channelsStore.isLoadingMore;
+	$: currentKeyword = $channelsStore.currentKeyword;
+	$: searchLimit = $channelsStore.searchLimit;
+	$: searchFilters = $channelsStore.searchFilters;
 
 	let selectedChannel: ChannelSearchResult | null = null;
 	let showEmailModal = false;
 
-	async function loadMore() {
-		if (!pagination || !pagination.hasMore || isLoadingMore || !stats) return;
+	async function handlePageChange(page: number) {
+		if (!pagination || !currentKeyword) return;
 
-		// Note: Load more functionality requires backend endpoint implementation
-		// The backend currently returns only the first 15 channels
-		// TODO: Implement /youtube/load-more endpoint in backend
-		alert('Load more functionality is not yet implemented in the backend. All available channels are already displayed.');
+		channelsStore.setLoadingMore(true);
 
-		// Uncomment when backend endpoint is ready:
-		// channelsStore.setLoadingMore(true);
-		// try {
-		// 	const data = await apiPost<any>('/youtube/load-more', {
-		// 		keyword: stats.keyword,
-		// 		page: pagination.currentPage + 1,
-		// 		pageSize: pagination.pageSize
-		// 	});
-		// 	channelsStore.appendChannels(data.channels, data.pagination);
-		// } catch (error) {
-		// 	console.error('Load more error:', error);
-		// 	channelsStore.setError(
-		// 		error instanceof Error ? error.message : 'Failed to load more channels'
-		// 	);
-		// }
+		try {
+			console.log('[Pagination] Fetching page', page);
+
+			const data = await fetchPage(
+				currentKeyword,
+				page,
+				pagination.pageSize,
+				pagination.searchSessionId,
+				searchLimit || undefined,
+				searchFilters || undefined
+			);
+
+			console.log('[Pagination] Page', page, 'loaded successfully');
+			channelsStore.setChannels(data.channels, data.stats, data.pagination);
+
+			// Scroll to top of table
+			window.scrollTo({ top: 0, behavior: 'smooth' });
+		} catch (error) {
+			console.error('[Pagination] Error loading page:', error);
+			channelsStore.setError(
+				error instanceof Error ? error.message : 'Failed to load page'
+			);
+		}
 	}
 
 	function formatSubscribers(count: number | undefined): string {
@@ -251,46 +260,22 @@
 
 	<div class="mt-4 flex flex-col items-center gap-3">
 		<div class="text-sm text-gray-500 text-center">
-			Showing all {channels.length} channel{channels.length !== 1 ? 's' : ''}
+			Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
 			{#if stats && stats.keyword}
 				for "{stats.keyword}"
 			{/if}
+			{#if pagination}
+				(Page {pagination.currentPage} of {pagination.totalPages})
+			{/if}
 		</div>
 
-		{#if pagination && pagination.hasMore}
-			<button
-				on:click={loadMore}
-				disabled={isLoadingMore}
-				class="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-			>
-				{#if isLoadingMore}
-					<span class="flex items-center gap-2">
-						<svg
-							class="animate-spin h-4 w-4"
-							xmlns="http://www.w3.org/2000/svg"
-							fill="none"
-							viewBox="0 0 24 24"
-						>
-							<circle
-								class="opacity-25"
-								cx="12"
-								cy="12"
-								r="10"
-								stroke="currentColor"
-								stroke-width="4"
-							/>
-							<path
-								class="opacity-75"
-								fill="currentColor"
-								d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-							/>
-						</svg>
-						Loading...
-					</span>
-				{:else}
-					Load More Channels
-				{/if}
-			</button>
+		{#if pagination && pagination.totalPages > 1}
+			<Pagination
+				currentPage={pagination.currentPage}
+				totalPages={pagination.totalPages}
+				onPageChange={handlePageChange}
+				loading={isLoadingMore}
+			/>
 		{/if}
 	</div>
 {:else}

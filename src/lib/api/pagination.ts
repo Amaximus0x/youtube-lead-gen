@@ -1,0 +1,35 @@
+import { apiPost } from './client';
+import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
+
+/**
+ * Fetch a specific page of search results
+ */
+export async function fetchPage(
+	keyword: string,
+	page: number,
+	pageSize: number = 15,
+	searchSessionId?: string,
+	limit?: number,
+	filters?: SearchRequest['filters']
+): Promise<SearchResponse> {
+	const requestBody: SearchRequest = {
+		keyword,
+		page,
+		pageSize,
+		limit: limit || 50, // Default to 50 for upfront fetching
+		filters
+	};
+
+	// Add searchSessionId for subsequent pages
+	if (searchSessionId) {
+		requestBody.searchSessionId = searchSessionId;
+	}
+
+	const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', requestBody);
+
+	if (response.status === 'success' && response.data) {
+		return response.data;
+	}
+
+	throw new Error(response.message || 'Failed to fetch page');
+}

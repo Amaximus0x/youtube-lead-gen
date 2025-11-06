@@ -39,7 +39,9 @@ export interface Pagination {
   currentPage: number;
   pageSize: number;
   totalChannels: number;
+  totalPages: number;
   hasMore: boolean;
+  searchSessionId: string;
 }
 
 export interface SearchResponse {
@@ -67,5 +69,8 @@ export interface SearchFilters {
 export interface SearchRequest {
   keyword: string;
   limit?: number;
+  page?: number;
+  pageSize?: number;
+  searchSessionId?: string;
   filters?: SearchFilters;
 }

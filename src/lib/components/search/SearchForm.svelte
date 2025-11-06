@@ -10,9 +10,9 @@
 	// Filter options
 	let minSubscribers: number | undefined = undefined;
 	let maxSubscribers: number | undefined = undefined;
+	let minAvgViews: number | undefined = undefined;
+	let maxAvgViews: number | undefined = undefined;
 	let country = '';
-	let excludeMusicChannels = true;
-	let excludeBrands = true;
 
 	async function handleSearch() {
 		// Validate input
@@ -33,9 +33,10 @@
 				filters: {
 					minSubscribers: minSubscribers || undefined,
 					maxSubscribers: maxSubscribers || undefined,
+					minAvgViews: minAvgViews || undefined,
+					maxAvgViews: maxAvgViews || undefined,
 					country: country || undefined,
-					excludeMusicChannels,
-					excludeBrands,
+					// Backend automatically excludes music and brand channels
 				}
 			};
 
@@ -55,14 +56,15 @@
 				console.log('[Search] Found', channels.length, 'channels');
 
 				// Update store with successful data
-				channelsStore.setChannels(channels, stats, pagination);
+				channelsStore.setChannels(channels, stats, pagination, limit, requestBody.filters);
 
 				// If enrichment is queued, start polling for updates
-				if (enrichmentQueued && channels.length > 0) {
-					const channelIds = channels.map((c) => c.channelId);
-					console.log('[Search] Starting enrichment polling for', channelIds.length, 'channels');
-					startEnrichmentPolling(channelIds);
-				}
+				// DISABLED: Enrichment polling temporarily disabled
+				// if (enrichmentQueued && channels.length > 0) {
+				// 	const channelIds = channels.map((c) => c.channelId);
+				// 	console.log('[Search] Starting enrichment polling for', channelIds.length, 'channels');
+				// 	startEnrichmentPolling(channelIds);
+				// }
 			} else {
 				// This shouldn't happen if the API client is working correctly, but just in case
 				throw new Error('Unexpected response format from server');
@@ -135,9 +137,9 @@
 		limit = 50;
 		minSubscribers = undefined;
 		maxSubscribers = undefined;
+		minAvgViews = undefined;
+		maxAvgViews = undefined;
 		country = '';
-		excludeMusicChannels = true;
-		excludeBrands = true;
 		channelsStore.reset();
 	}
 </script>
@@ -226,25 +228,39 @@
 					</div>
 				</div>
 
-				<!-- Exclusion Filters -->
-				<div class="space-y-2">
-					<label class="flex items-center">
+				<!-- Average Views Range -->
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label for="minAvgViews" class="block mb-2 text-sm font-medium text-gray-700">
+							Min Avg Views
+						</label>
 						<input
-							type="checkbox"
-							bind:checked={excludeMusicChannels}
-							class="text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+							type="number"
+							id="minAvgViews"
+							bind:value={minAvgViews}
+							placeholder="e.g., 500"
+							class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 						/>
-						<span class="ml-2 text-sm text-gray-700">Exclude music channels</span>
-					</label>
+						<p class="mt-1 text-xs text-gray-500">Minimum average views per video</p>
+					</div>
+					<div>
+						<label for="maxAvgViews" class="block mb-2 text-sm font-medium text-gray-700">
+							Max Avg Views
+						</label>
+						<input
+							type="number"
+							id="maxAvgViews"
+							bind:value={maxAvgViews}
+							placeholder="e.g., 50000"
+							class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+						/>
+						<p class="mt-1 text-xs text-gray-500">Maximum average views per video</p>
+					</div>
+				</div>
 
-					<label class="flex items-center">
-						<input
-							type="checkbox"
-							bind:checked={excludeBrands}
-							class="text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-						/>
-						<span class="ml-2 text-sm text-gray-700">Exclude brand channels</span>
-					</label>
+				<!-- Note about automatic exclusions -->
+				<div class="p-3 text-sm text-gray-600 bg-blue-50 rounded-md">
+					<strong>Note:</strong> Music and brand channels are automatically excluded to provide better lead quality.
 				</div>
 
 				<!-- Country Filter -->
