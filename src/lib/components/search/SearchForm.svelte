@@ -22,6 +22,9 @@
 			return;
 		}
 
+		// Auto-close advanced filters for better UX
+		showAdvanced = false;
+
 		// Reset error state and set searching state
 		channelsStore.setSearching(true);
 

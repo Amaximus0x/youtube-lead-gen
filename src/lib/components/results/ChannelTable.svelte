@@ -125,11 +125,7 @@
 			</div>
 			<div>
 				<span class="font-semibold">Found:</span>
-				<span class="text-green-700">{stats.total}</span>
-			</div>
-			<div>
-				<span class="font-semibold">After filters:</span>
-				<span class="text-purple-700">{stats.filtered}</span>
+				<span class="text-green-700">{stats.filtered}</span>
 			</div>
 		</div>
 	</div>
@@ -264,7 +260,7 @@
 			{#if stats && stats.keyword}
 				for "{stats.keyword}"
 			{/if}
-			{#if pagination}
+			{#if pagination && pagination.totalPages > 0}
 				(Page {pagination.currentPage} of {pagination.totalPages})
 			{/if}
 		</div>

@@ -124,12 +124,9 @@
 							: ''} ready for email extraction.
 					</p>
 					<p class="mb-6 text-sm text-gray-500">
-						Email extraction will be implemented in Phase 3.
+						Email extraction from social media will be implemented in Phase 2.
 					</p>
-					<div class="flex justify-center gap-4">
-						<button class="btn btn-primary" disabled>
-							Extract Emails (Coming Soon)
-						</button>
+					<div class="flex justify-center">
 						<button class="btn btn-secondary" onclick={handleExportData}>
 							<svg
 								class="inline w-5 h-5 mr-2"
