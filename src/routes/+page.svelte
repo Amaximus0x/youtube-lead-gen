@@ -28,7 +28,7 @@
 			class="px-8 py-3 text-lg text-black transition-all btn btn-primary"
 			class:ring-4={activeTab === 'generate'}
 			class:ring-blue-300={activeTab === 'generate'}
-			onclick={() => (activeTab = 'generate')}
+			on:click={() => (activeTab = 'generate')}
 		>
 			<svg class="inline w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path
@@ -44,7 +44,7 @@
 			class="px-8 py-3 text-lg transition-all btn btn-secondary"
 			class:ring-4={activeTab === 'extract'}
 			class:ring-purple-300={activeTab === 'extract'}
-			onclick={() => (activeTab = 'extract')}
+			on:click={() => (activeTab = 'extract')}
 		>
 			<svg class="inline w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path
@@ -127,7 +127,7 @@
 						Email extraction from social media will be implemented in Phase 2.
 					</p>
 					<div class="flex justify-center">
-						<button class="btn btn-secondary" onclick={handleExportData}>
+						<button class="btn btn-secondary" on:click={handleExportData}>
 							<svg
 								class="inline w-5 h-5 mr-2"
 								fill="none"
