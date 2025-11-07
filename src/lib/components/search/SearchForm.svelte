@@ -13,6 +13,7 @@
 	let minAvgViews: number | undefined = undefined;
 	let maxAvgViews: number | undefined = undefined;
 	let country = '';
+	let englishOnly = false;
 
 	async function handleSearch() {
 		// Validate input
@@ -36,6 +37,7 @@
 					minAvgViews: minAvgViews || undefined,
 					maxAvgViews: maxAvgViews || undefined,
 					country: country || undefined,
+					englishOnly: englishOnly ? true : undefined,
 					// Backend automatically excludes music and brand channels
 				}
 			};
@@ -293,24 +295,21 @@
 					</select>
 				</div>
 
-				<!-- Language Filter -->
-				<!-- <div>
-					<label for="language" class="block mb-2 text-sm font-medium text-gray-700">
-						Language (optional)
-					</label>
-					<select
-						id="language"
-						bind:value={language}
-						class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-					>
-						<option value="">Any language</option>
-						<option value="en">English</option>
-						<option value="es">Spanish</option>
-						<option value="fr">French</option>
-						<option value="de">German</option>
-						<option value="pt">Portuguese</option>
-					</select>
-				</div> -->
+				<!-- English Only Filter -->
+				<div class="flex items-start gap-3 p-4 border border-gray-200 rounded-md bg-gray-50">
+					<input
+						type="checkbox"
+						id="englishOnly"
+						bind:checked={englishOnly}
+						class="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+					/>
+					<div class="flex-1">
+						<label for="englishOnly" class="text-sm font-medium text-gray-700 cursor-pointer">
+							English Language Only
+						</label>
+						<p class="mt-1 text-xs text-gray-500">Filter to show only English-speaking YouTube channels</p>
+					</div>
+				</div>
 			</div>
 		{/if}
 

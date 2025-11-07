@@ -20,6 +20,7 @@ export interface ChannelSearchResult {
   viewCount?: number;
   videoCount?: number;
   country?: string;
+  language?: string;
   thumbnailUrl?: string;
   relevanceScore?: number;
   emails?: string[];
@@ -61,7 +62,10 @@ export interface ApiResponse<T> {
 export interface SearchFilters {
   minSubscribers?: number;
   maxSubscribers?: number;
+  minAvgViews?: number;
+  maxAvgViews?: number;
   country?: string;
+  englishOnly?: boolean;
   excludeMusicChannels?: boolean;
   excludeBrands?: boolean;
 }
