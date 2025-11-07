@@ -41,11 +41,20 @@ function createChannelsStore() {
 			searchLimit?: number,
 			searchFilters?: SearchFilters
 		) => {
+			// Fix for missing totalPages in backend response (fallback calculation)
+			let fixedPagination = pagination;
+			if (pagination && !pagination.totalPages && pagination.totalChannels && pagination.pageSize) {
+				fixedPagination = {
+					...pagination,
+					totalPages: Math.ceil(pagination.totalChannels / pagination.pageSize)
+				};
+			}
+
 			update((state) => ({
 				...state,
 				channels,
 				stats,
-				pagination,
+				pagination: fixedPagination,
 				currentKeyword: stats?.keyword || state.currentKeyword,
 				searchLimit: searchLimit !== undefined ? searchLimit : state.searchLimit,
 				searchFilters: searchFilters !== undefined ? searchFilters : state.searchFilters,
@@ -58,10 +67,19 @@ function createChannelsStore() {
 			channels: ChannelSearchResult[],
 			pagination: Pagination | null
 		) => {
+			// Fix for missing totalPages in backend response (fallback calculation)
+			let fixedPagination = pagination;
+			if (pagination && !pagination.totalPages && pagination.totalChannels && pagination.pageSize) {
+				fixedPagination = {
+					...pagination,
+					totalPages: Math.ceil(pagination.totalChannels / pagination.pageSize)
+				};
+			}
+
 			update((state) => ({
 				...state,
 				channels: [...state.channels, ...channels],
-				pagination,
+				pagination: fixedPagination,
 				isLoadingMore: false,
 				error: null
 			}));
