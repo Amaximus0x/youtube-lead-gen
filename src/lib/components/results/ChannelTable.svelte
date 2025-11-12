@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
 	import { fetchPage } from '$lib/api/pagination';
-	import Pagination from '$lib/components/common/Pagination.svelte';
 	import type { ChannelSearchResult } from '$lib/types/api';
 
 	$: channels = $channelsStore.channels;
@@ -15,33 +14,46 @@
 	let selectedChannel: ChannelSearchResult | null = null;
 	let showEmailModal = false;
 
-	async function handlePageChange(page: number) {
+	async function handleLoadMore() {
 		if (!pagination || !currentKeyword) return;
 
 		channelsStore.setLoadingMore(true);
 
 		try {
-			console.log('[Pagination] Fetching page', page);
+			const nextPage = pagination.currentPage + 1;
+			console.log('[LoadMore] Fetching page', nextPage);
 
 			const data = await fetchPage(
 				currentKeyword,
-				page,
+				nextPage,
 				pagination.pageSize,
 				pagination.searchSessionId,
 				searchLimit || undefined,
 				searchFilters || undefined
 			);
 
-			console.log('[Pagination] Page', page, 'loaded successfully');
-			channelsStore.setChannels(data.channels, data.stats, data.pagination);
+			console.log('[LoadMore] Page', nextPage, 'loaded successfully');
+			console.log('[LoadMore] Response data:', data);
+			console.log('[LoadMore] New channels count:', data.channels?.length);
+			console.log('[LoadMore] New pagination:', data.pagination);
 
-			// Scroll to top of table
-			window.scrollTo({ top: 0, behavior: 'smooth' });
+			// Validate response
+			if (!data.channels || !Array.isArray(data.channels)) {
+				throw new Error('Invalid response: channels data is missing or not an array');
+			}
+
+			// Append new channels to existing list
+			console.log('[LoadMore] Appending', data.channels.length, 'channels to store');
+			channelsStore.appendChannels(data.channels, data.stats, data.pagination);
+			console.log('[LoadMore] Store updated successfully');
 		} catch (error) {
-			console.error('[Pagination] Error loading page:', error);
+			console.error('[LoadMore] Error loading more channels:', error);
 			channelsStore.setError(
-				error instanceof Error ? error.message : 'Failed to load page'
+				error instanceof Error ? error.message : 'Failed to load more channels'
 			);
+		} finally {
+			// Ensure loading state is reset even if there's an error
+			channelsStore.setLoadingMore(false);
 		}
 	}
 
@@ -260,18 +272,47 @@
 			{#if stats && stats.keyword}
 				for "{stats.keyword}"
 			{/if}
-			{#if pagination}
-				(Page {pagination.currentPage}{#if pagination.hasMore || pagination.totalPages > 1} of {pagination.hasMore ? pagination.currentPage + 1 + '+' : pagination.totalPages}{/if})
+			{#if pagination && pagination.totalChannels > channels.length}
+				out of {pagination.totalChannels} found
 			{/if}
 		</div>
 
-		{#if pagination && (pagination.totalPages > 1 || pagination.hasMore)}
-			<Pagination
-				currentPage={pagination.currentPage}
-				totalPages={pagination.hasMore && pagination.totalPages === 1 ? 2 : pagination.totalPages}
-				onPageChange={handlePageChange}
-				loading={isLoadingMore}
-			/>
+		{#if pagination && (pagination.hasMore || pagination.currentPage < pagination.totalPages || (searchLimit && channels.length < searchLimit))}
+			<button
+				on:click={handleLoadMore}
+				disabled={isLoadingMore}
+				class="px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+			>
+				{#if isLoadingMore}
+					<svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
+						<circle
+							class="opacity-25"
+							cx="12"
+							cy="12"
+							r="10"
+							stroke="currentColor"
+							stroke-width="4"
+							fill="none"
+						/>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						/>
+					</svg>
+					Loading...
+				{:else}
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+					</svg>
+					Load More Channels
+				{/if}
+			</button>
+			{#if searchLimit && channels.length < searchLimit}
+				<p class="text-xs text-gray-500">
+					{searchLimit - channels.length} more channel{searchLimit - channels.length !== 1 ? 's' : ''} available (limit: {searchLimit})
+				</p>
+			{/if}
 		{/if}
 	</div>
 {:else}

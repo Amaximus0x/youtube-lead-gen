@@ -4,7 +4,7 @@
 	import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
 
 	let keyword = '';
-	let limit = 15;
+	let totalChannelsLimit = 50; // Total channels user wants to find
 	let showAdvanced = false;
 
 	// Filter options
@@ -34,8 +34,8 @@
 			const requestBody: SearchRequest = {
 				keyword: keyword.trim(),
 				page: 1,
-				pageSize: limit,
-				limit: 50, // Backend fetch limit (max channels to scrape from YouTube)
+				pageSize: 15, // Fixed page size for initial load
+				limit: totalChannelsLimit, // Total channels to scrape from YouTube
 				filters: {
 					minSubscribers: minSubscribers || undefined,
 					maxSubscribers: maxSubscribers || undefined,
@@ -63,7 +63,7 @@
 				console.log('[Search] Found', channels.length, 'channels');
 
 				// Update store with successful data
-				channelsStore.setChannels(channels, stats, pagination, limit, requestBody.filters);
+				channelsStore.setChannels(channels, stats, pagination, totalChannelsLimit, requestBody.filters);
 
 				// If enrichment is queued, start polling for updates
 				// DISABLED: Enrichment polling temporarily disabled
@@ -141,7 +141,7 @@
 
 	function handleReset() {
 		keyword = '';
-		limit = 15;
+		totalChannelsLimit = 50;
 		minSubscribers = undefined;
 		maxSubscribers = undefined;
 		minAvgViews = undefined;
@@ -171,22 +171,22 @@
 			<p class="mt-1 text-sm text-gray-500">Enter a keyword to search for relevant channels</p>
 		</div>
 
-		<!-- Limit Input -->
+		<!-- Total Channels Limit Input -->
 		<div>
-			<label for="limit" class="block mb-2 text-sm font-medium text-gray-700">
-				Page Size (Results per page)
+			<label for="totalChannelsLimit" class="block mb-2 text-sm font-medium text-gray-700">
+				Total Channels to Find
 			</label>
 			<input
 				type="number"
-				id="limit"
-				bind:value={limit}
-				min="5"
-				max="50"
-				step="5"
+				id="totalChannelsLimit"
+				bind:value={totalChannelsLimit}
+				min="10"
+				max="100"
+				step="10"
 				class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 			/>
 			<p class="mt-1 text-sm text-gray-500">
-				On-demand pagination: More results will load automatically as you browse pages
+				Maximum number of channels to scrape from YouTube. Use "Load More" to fetch additional results.
 			</p>
 		</div>
 

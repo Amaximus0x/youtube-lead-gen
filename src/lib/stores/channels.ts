@@ -65,8 +65,11 @@ function createChannelsStore() {
 		},
 		appendChannels: (
 			channels: ChannelSearchResult[],
+			stats: SearchStats | null,
 			pagination: Pagination | null
 		) => {
+			console.log('[Store] appendChannels called with:', channels.length, 'new channels');
+
 			// Fix for missing totalPages in backend response (fallback calculation)
 			let fixedPagination = pagination;
 			if (pagination && !pagination.totalPages && pagination.totalChannels && pagination.pageSize) {
@@ -76,13 +79,18 @@ function createChannelsStore() {
 				};
 			}
 
-			update((state) => ({
-				...state,
-				channels: [...state.channels, ...channels],
-				pagination: fixedPagination,
-				isLoadingMore: false,
-				error: null
-			}));
+			update((state) => {
+				const newState = {
+					...state,
+					channels: [...state.channels, ...channels],
+					stats,
+					pagination: fixedPagination,
+					isLoadingMore: false,
+					error: null
+				};
+				console.log('[Store] State updated. Total channels now:', newState.channels.length);
+				return newState;
+			});
 		},
 		setLoadingMore: (isLoadingMore: boolean) => {
 			update((state) => ({ ...state, isLoadingMore, error: null }));
