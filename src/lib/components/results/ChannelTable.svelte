@@ -260,15 +260,15 @@
 			{#if stats && stats.keyword}
 				for "{stats.keyword}"
 			{/if}
-			{#if pagination && pagination.totalPages > 0}
-				(Page {pagination.currentPage} of {pagination.totalPages})
+			{#if pagination}
+				(Page {pagination.currentPage}{#if pagination.hasMore || pagination.totalPages > 1} of {pagination.hasMore ? pagination.currentPage + 1 + '+' : pagination.totalPages}{/if})
 			{/if}
 		</div>
 
-		{#if pagination && pagination.totalPages > 1}
+		{#if pagination && (pagination.totalPages > 1 || pagination.hasMore)}
 			<Pagination
 				currentPage={pagination.currentPage}
-				totalPages={pagination.totalPages}
+				totalPages={pagination.hasMore && pagination.totalPages === 1 ? 2 : pagination.totalPages}
 				onPageChange={handlePageChange}
 				loading={isLoadingMore}
 			/>

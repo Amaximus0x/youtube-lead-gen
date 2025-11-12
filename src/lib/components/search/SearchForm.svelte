@@ -4,7 +4,7 @@
 	import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
 
 	let keyword = '';
-	let limit = 50;
+	let limit = 15;
 	let showAdvanced = false;
 
 	// Filter options
@@ -33,7 +33,9 @@
 
 			const requestBody: SearchRequest = {
 				keyword: keyword.trim(),
-				limit,
+				page: 1,
+				pageSize: limit,
+				limit: 50, // Backend fetch limit (max channels to scrape from YouTube)
 				filters: {
 					minSubscribers: minSubscribers || undefined,
 					maxSubscribers: maxSubscribers || undefined,
@@ -139,7 +141,7 @@
 
 	function handleReset() {
 		keyword = '';
-		limit = 50;
+		limit = 15;
 		minSubscribers = undefined;
 		maxSubscribers = undefined;
 		minAvgViews = undefined;
@@ -172,17 +174,20 @@
 		<!-- Limit Input -->
 		<div>
 			<label for="limit" class="block mb-2 text-sm font-medium text-gray-700">
-				Number of Results
+				Page Size (Results per page)
 			</label>
 			<input
 				type="number"
 				id="limit"
 				bind:value={limit}
 				min="5"
-				max="100"
+				max="50"
 				step="5"
 				class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 			/>
+			<p class="mt-1 text-sm text-gray-500">
+				On-demand pagination: More results will load automatically as you browse pages
+			</p>
 		</div>
 
 		<!-- Advanced Filters Toggle -->
@@ -264,9 +269,9 @@
 				</div>
 
 				<!-- Note about automatic exclusions -->
-				<div class="p-3 text-sm text-gray-600 bg-blue-50 rounded-md">
+				<!-- <div class="p-3 text-sm text-gray-600 rounded-md bg-blue-50">
 					<strong>Note:</strong> Music and brand channels are automatically excluded to provide better lead quality.
-				</div>
+				</div> -->
 
 				<!-- Country Filter -->
 				<div>
@@ -304,7 +309,7 @@
 						type="checkbox"
 						id="englishOnly"
 						bind:checked={englishOnly}
-						class="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+						class="w-4 h-4 mt-1 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
 					/>
 					<div class="flex-1">
 						<label for="englishOnly" class="text-sm font-medium text-gray-700 cursor-pointer">

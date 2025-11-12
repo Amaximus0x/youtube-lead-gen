@@ -16,7 +16,7 @@ export async function fetchPage(
 		keyword,
 		page,
 		pageSize,
-		limit: limit || 50, // Default to 50 for upfront fetching
+		limit: limit || 15, // Default to 15 for on-demand fetching
 		filters
 	};
 
