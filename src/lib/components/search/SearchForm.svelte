@@ -1,62 +1,94 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
+	import { apiPost } from '$lib/api/client';
+	import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
 
 	let keyword = '';
-	let limit = 50;
+	let totalChannelsLimit = 50; // Total channels user wants to find
 	let showAdvanced = false;
 
 	// Filter options
 	let minSubscribers: number | undefined = undefined;
 	let maxSubscribers: number | undefined = undefined;
-	let excludeMusicChannels = true;
-	let excludeBrands = true;
-	let language = '';
+	let minAvgViews: number | undefined = undefined;
+	let maxAvgViews: number | undefined = undefined;
+	let country = '';
+	let englishOnly = false;
 
 	async function handleSearch() {
+		// Validate input
 		if (!keyword.trim()) {
-			alert('Please enter a keyword');
+			channelsStore.setError('Please enter a keyword');
 			return;
 		}
 
+		// Auto-close advanced filters for better UX
+		showAdvanced = false;
+
+		// Reset error state and set searching state
 		channelsStore.setSearching(true);
 
 		try {
-			const response = await fetch('/api/youtube/search', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					keyword: keyword.trim(),
-					limit,
-					filters: {
-						minSubscribers: minSubscribers || undefined,
-						maxSubscribers: maxSubscribers || undefined,
-						excludeMusicChannels,
-						excludeBrands,
-						language: language || undefined
-					}
-				})
-			});
+			console.log('[Search] Starting search for:', keyword.trim());
 
-			const data = await response.json();
+			const requestBody: SearchRequest = {
+				keyword: keyword.trim(),
+				page: 1,
+				pageSize: 15, // Fixed page size for initial load
+				limit: totalChannelsLimit, // Total channels to scrape from YouTube
+				filters: {
+					minSubscribers: minSubscribers || undefined,
+					maxSubscribers: maxSubscribers || undefined,
+					minAvgViews: minAvgViews || undefined,
+					maxAvgViews: maxAvgViews || undefined,
+					country: country || undefined,
+					englishOnly: englishOnly ? true : undefined,
+					// Backend automatically excludes music and brand channels
+				}
+			};
 
-			if (!response.ok) {
-				throw new Error(data.message || data.error || 'Search failed');
-			}
+			const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', requestBody);
 
-			channelsStore.setChannels(data.channels, data.stats, data.pagination);
+			console.log('[Search] Response received:', response);
 
-			// If enrichment is queued, start polling for updates
-			if (data.enrichmentQueued && data.channels.length > 0) {
-				const channelIds = data.channels.map((c: any) => c.channelId);
-				startEnrichmentPolling(channelIds);
+			// Backend returns { status: "success", data: { channels, stats, pagination, enrichmentQueued } }
+			if (response.status === 'success' && response.data) {
+				const { channels, stats, pagination, enrichmentQueued } = response.data;
+
+				// Validate response data
+				if (!channels || !Array.isArray(channels)) {
+					throw new Error('Invalid response format: channels data is missing or invalid');
+				}
+
+				console.log('[Search] Found', channels.length, 'channels');
+
+				// Update store with successful data
+				channelsStore.setChannels(channels, stats, pagination, totalChannelsLimit, requestBody.filters);
+
+				// If enrichment is queued, start polling for updates
+				// DISABLED: Enrichment polling temporarily disabled
+				// if (enrichmentQueued && channels.length > 0) {
+				// 	const channelIds = channels.map((c) => c.channelId);
+				// 	console.log('[Search] Starting enrichment polling for', channelIds.length, 'channels');
+				// 	startEnrichmentPolling(channelIds);
+				// }
+			} else {
+				// This shouldn't happen if the API client is working correctly, but just in case
+				throw new Error('Unexpected response format from server');
 			}
 		} catch (error) {
-			console.error('Search error:', error);
-			channelsStore.setError(
-				error instanceof Error ? error.message : 'An error occurred while searching'
-			);
+			console.error('[Search] Error:', error);
+
+			// Set error state with a user-friendly message
+			const errorMessage = error instanceof Error
+				? error.message
+				: 'An unexpected error occurred while searching';
+
+			channelsStore.setError(errorMessage);
+		} finally {
+			// Always reset searching state, even if there's an error
+			// This is handled in the catch block via setError, but we ensure it here too
+			console.log('[Search] Search completed');
 		}
 	}
 
@@ -73,15 +105,7 @@
 		// Poll every 10 seconds
 		enrichmentPollingInterval = setInterval(async () => {
 			try {
-				const response = await fetch('/api/youtube/enrichment-status', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ channelIds })
-				});
-
-				const data = await response.json();
+				const data = await apiPost<any>('/enrichment/status', { channelIds });
 
 				if (data.success && data.statuses) {
 					// Update channels with enrichment data
@@ -117,23 +141,23 @@
 
 	function handleReset() {
 		keyword = '';
-		limit = 50;
+		totalChannelsLimit = 50;
 		minSubscribers = undefined;
 		maxSubscribers = undefined;
-		excludeMusicChannels = true;
-		excludeBrands = true;
-		language = '';
+		minAvgViews = undefined;
+		maxAvgViews = undefined;
+		country = '';
 		channelsStore.reset();
 	}
 </script>
 
-<div class="bg-white p-6 rounded-lg shadow-md">
-	<h2 class="text-2xl font-bold mb-4 text-gray-800">Search YouTube Channels</h2>
+<div class="p-6 bg-white rounded-lg shadow-md">
+	<h2 class="mb-4 text-2xl font-bold text-gray-800">Search YouTube Channels</h2>
 
 	<form on:submit|preventDefault={handleSearch} class="space-y-4">
 		<!-- Keyword Input -->
 		<div>
-			<label for="keyword" class="block text-sm font-medium text-gray-700 mb-2">
+			<label for="keyword" class="block mb-2 text-sm font-medium text-gray-700">
 				Keyword or Niche *
 			</label>
 			<input
@@ -147,27 +171,30 @@
 			<p class="mt-1 text-sm text-gray-500">Enter a keyword to search for relevant channels</p>
 		</div>
 
-		<!-- Limit Input -->
+		<!-- Total Channels Limit Input -->
 		<div>
-			<label for="limit" class="block text-sm font-medium text-gray-700 mb-2">
-				Number of Results
+			<label for="totalChannelsLimit" class="block mb-2 text-sm font-medium text-gray-700">
+				Total Channels to Find
 			</label>
 			<input
 				type="number"
-				id="limit"
-				bind:value={limit}
+				id="totalChannelsLimit"
+				bind:value={totalChannelsLimit}
 				min="10"
 				max="100"
 				step="10"
 				class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 			/>
+			<p class="mt-1 text-sm text-gray-500">
+				Maximum number of channels to scrape from YouTube. Use "Load More" to fetch additional results.
+			</p>
 		</div>
 
 		<!-- Advanced Filters Toggle -->
 		<button
 			type="button"
 			on:click={() => (showAdvanced = !showAdvanced)}
-			class="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-2"
+			class="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800"
 		>
 			<svg
 				class="w-4 h-4 transform transition-transform {showAdvanced ? 'rotate-90' : ''}"
@@ -186,7 +213,7 @@
 				<!-- Subscriber Range -->
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label for="minSubs" class="block text-sm font-medium text-gray-700 mb-2">
+						<label for="minSubs" class="block mb-2 text-sm font-medium text-gray-700">
 							Min Subscribers
 						</label>
 						<input
@@ -198,7 +225,7 @@
 						/>
 					</div>
 					<div>
-						<label for="maxSubs" class="block text-sm font-medium text-gray-700 mb-2">
+						<label for="maxSubs" class="block mb-2 text-sm font-medium text-gray-700">
 							Max Subscribers
 						</label>
 						<input
@@ -211,44 +238,85 @@
 					</div>
 				</div>
 
-				<!-- Exclusion Filters -->
-				<div class="space-y-2">
-					<label class="flex items-center">
+				<!-- Average Views Range -->
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label for="minAvgViews" class="block mb-2 text-sm font-medium text-gray-700">
+							Min Avg Views
+						</label>
 						<input
-							type="checkbox"
-							bind:checked={excludeMusicChannels}
-							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+							type="number"
+							id="minAvgViews"
+							bind:value={minAvgViews}
+							placeholder="e.g., 500"
+							class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 						/>
-						<span class="ml-2 text-sm text-gray-700">Exclude music channels</span>
-					</label>
-
-					<label class="flex items-center">
+						<p class="mt-1 text-xs text-gray-500">Minimum average views per video</p>
+					</div>
+					<div>
+						<label for="maxAvgViews" class="block mb-2 text-sm font-medium text-gray-700">
+							Max Avg Views
+						</label>
 						<input
-							type="checkbox"
-							bind:checked={excludeBrands}
-							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+							type="number"
+							id="maxAvgViews"
+							bind:value={maxAvgViews}
+							placeholder="e.g., 50000"
+							class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 						/>
-						<span class="ml-2 text-sm text-gray-700">Exclude brand channels</span>
-					</label>
+						<p class="mt-1 text-xs text-gray-500">Maximum average views per video</p>
+					</div>
 				</div>
 
-				<!-- Language Filter -->
+				<!-- Note about automatic exclusions -->
+				<!-- <div class="p-3 text-sm text-gray-600 rounded-md bg-blue-50">
+					<strong>Note:</strong> Music and brand channels are automatically excluded to provide better lead quality.
+				</div> -->
+
+				<!-- Country Filter -->
 				<div>
-					<label for="language" class="block text-sm font-medium text-gray-700 mb-2">
-						Language (optional)
+					<label for="country" class="block mb-2 text-sm font-medium text-gray-700">
+						Country (optional)
 					</label>
 					<select
-						id="language"
-						bind:value={language}
+						id="country"
+						bind:value={country}
 						class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 					>
-						<option value="">Any language</option>
-						<option value="en">English</option>
-						<option value="es">Spanish</option>
-						<option value="fr">French</option>
-						<option value="de">German</option>
-						<option value="pt">Portuguese</option>
+						<option value="">Any country</option>
+						<option value="United States">United States</option>
+						<option value="India">India</option>
+						<option value="United Kingdom">United Kingdom</option>
+						<option value="Canada">Canada</option>
+						<option value="Australia">Australia</option>
+						<option value="Germany">Germany</option>
+						<option value="France">France</option>
+						<option value="Brazil">Brazil</option>
+						<option value="Mexico">Mexico</option>
+						<option value="Japan">Japan</option>
+						<option value="South Korea">South Korea</option>
+						<option value="Spain">Spain</option>
+						<option value="Italy">Italy</option>
+						<option value="Netherlands">Netherlands</option>
+						<option value="Philippines">Philippines</option>
+						<option value="Indonesia">Indonesia</option>
 					</select>
+				</div>
+
+				<!-- English Only Filter -->
+				<div class="flex items-start gap-3 p-4 border border-gray-200 rounded-md bg-gray-50">
+					<input
+						type="checkbox"
+						id="englishOnly"
+						bind:checked={englishOnly}
+						class="w-4 h-4 mt-1 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+					/>
+					<div class="flex-1">
+						<label for="englishOnly" class="text-sm font-medium text-gray-700 cursor-pointer">
+							English Language Only
+						</label>
+						<p class="mt-1 text-xs text-gray-500">Filter to show only English-speaking YouTube channels</p>
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -258,10 +326,10 @@
 			<button
 				type="submit"
 				disabled={$channelsStore.isSearching}
-				class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+				class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
 			>
 				{#if $channelsStore.isSearching}
-					<svg class="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+					<svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
 						<circle
 							class="opacity-25"
 							cx="12"
@@ -294,7 +362,7 @@
 			<button
 				type="button"
 				on:click={handleReset}
-				class="px-6 py-3 border border-gray-300 rounded-md font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+				class="px-6 py-3 font-semibold text-gray-700 transition-colors border border-gray-300 rounded-md hover:bg-gray-50"
 			>
 				Reset
 			</button>
@@ -303,9 +371,9 @@
 
 	<!-- Error Display -->
 	{#if $channelsStore.error}
-		<div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+		<div class="p-4 mt-4 border border-red-200 rounded-md bg-red-50">
 			<div class="flex items-center">
-				<svg class="w-5 h-5 text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+				<svg class="w-5 h-5 mr-2 text-red-400" fill="currentColor" viewBox="0 0 20 20">
 					<path
 						fill-rule="evenodd"
 						d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"

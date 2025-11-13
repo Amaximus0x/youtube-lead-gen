@@ -32,8 +32,6 @@ export class YouTubeScraper {
   async initialize() {
     if (this.browser) return;
 
-    // Detect if we're running in production (Vercel/serverless) or local
-    const isProduction = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
     const proxyUrl = process.env.PROXY_URL;
 
     // Prepare common args
@@ -50,53 +48,15 @@ export class YouTubeScraper {
       console.log(`Using proxy: ${proxyUrl}`);
     }
 
-    if (isProduction) {
-      // Use @sparticuz/chromium for serverless environments
-      const chromium = (await import('@sparticuz/chromium')).default;
-      const puppeteer = await import('puppeteer-core');
+    // Use regular puppeteer for local development
+    const puppeteer = await import('puppeteer');
 
-      // Configure chromium for serverless
-      const executablePath = await chromium.executablePath();
+    this.browser = await puppeteer.launch({
+      headless: true,
+      args: commonArgs,
+    });
 
-      // Combine chromium's recommended args with our custom args
-      const serverlessArgs = [
-        ...chromium.args,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-blink-features=AutomationControlled',
-        '--single-process',
-        '--no-zygote',
-      ];
-
-      // Add proxy if configured
-      if (proxyUrl) {
-        serverlessArgs.push(`--proxy-server=${proxyUrl}`);
-        console.log(`Using proxy: ${proxyUrl}`);
-      }
-
-      console.log('Launching Chromium in serverless mode...');
-      console.log('Executable path:', executablePath);
-
-      this.browser = await puppeteer.launch({
-        args: serverlessArgs,
-        defaultViewport: chromium.defaultViewport,
-        executablePath,
-        headless: chromium.headless,
-      });
-
-      console.log('YouTube scraper initialized (serverless mode)');
-    } else {
-      // Use regular puppeteer for local development
-      const puppeteer = await import('puppeteer');
-
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: commonArgs,
-      });
-
-      console.log('YouTube scraper initialized (local mode)');
-    }
+    console.log('YouTube scraper initialized');
   }
 
   async close() {
@@ -110,7 +70,209 @@ export class YouTubeScraper {
   async searchChannels(
     keyword: string,
     limit: number = 50,
-    enrichData: boolean = true
+    enrichData: boolean = true,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
+  ): Promise<ChannelSearchResult[]> {
+    // Use Innertube API method for better performance
+    return this.searchChannelsWithInnertube(keyword, limit, filters);
+  }
+
+  /**
+   * Search channels using YouTube Innertube API (continuation tokens)
+   * This is much faster and can retrieve many more results than scrolling
+   */
+  private async searchChannelsWithInnertube(
+    keyword: string,
+    limit: number = 50,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
+  ): Promise<ChannelSearchResult[]> {
+    if (!this.browser) {
+      await this.initialize();
+    }
+
+    const page = await this.browser!.newPage();
+
+    try {
+      const searchQuery = encodeURIComponent(keyword);
+      const url = `https://www.youtube.com/results?search_query=${searchQuery}&sp=EgIQAg%253D%253D`;
+      console.log(`[Innertube] Searching YouTube: ${url}`);
+
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Extract Innertube data
+      const { extractInnertubeData, collectChannelsFromInnertubeData, getContinuationToken, fetchNextPage } = await import('./innertube-scraper');
+      const innertubeData = await extractInnertubeData(page);
+      console.log(`[Innertube] Extracted API key and context`);
+
+      // Collect channels from initial page
+      let allChannels = collectChannelsFromInnertubeData(innertubeData.ytInitialData);
+      console.log(`[Innertube] Found ${allChannels.length} channels in initial page`);
+
+      // Get continuation token
+      let continuation = getContinuationToken(innertubeData.ytInitialData);
+
+      // Fetch more pages using continuation tokens
+      let attempts = 0;
+      const maxAttempts = 20;
+      // If we have filters, get 5x the limit to ensure we have enough after filtering
+      // (accounting for both filtering and enrichment failures)
+      const targetChannels = filters && (filters.minSubscribers || filters.maxSubscribers || filters.country) ? limit * 5 : limit;
+
+      while (allChannels.length < targetChannels && continuation && attempts < maxAttempts) {
+        attempts++;
+        console.log(
+          `[Innertube] Fetching page ${attempts + 1} (have ${allChannels.length} channels, targeting ${targetChannels})`
+        );
+
+        try {
+          const response = await fetchNextPage(
+            page,
+            innertubeData.apiKey,
+            innertubeData.context,
+            continuation
+          );
+
+          const newChannels = collectChannelsFromInnertubeData(response);
+          console.log(`[Innertube] Found ${newChannels.length} new channels in page ${attempts + 1}`);
+
+          // Add unique channels
+          const existingUrls = new Set(allChannels.map((c) => c.url));
+          for (const channel of newChannels) {
+            if (!existingUrls.has(channel.url)) {
+              allChannels.push(channel);
+            }
+          }
+
+          continuation = getContinuationToken(response);
+
+          if (!continuation) {
+            console.log(`[Innertube] No more continuation tokens, stopping`);
+            break;
+          }
+        } catch (error) {
+          console.error(`[Innertube] Error fetching page ${attempts + 1}:`, error);
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+
+      console.log(
+        `[Innertube] Total collected: ${allChannels.length} channels after ${attempts} continuation requests`
+      );
+
+      // Enrich and filter if needed
+      if (filters && (filters.minSubscribers || filters.maxSubscribers || filters.country)) {
+        console.log(`[Filter] Starting batch enrichment and filtering to get ${limit} matching channels...`);
+
+        const matchingChannels: ChannelSearchResult[] = [];
+        const batchSize = 10;
+        let processedCount = 0;
+
+        for (let i = 0; i < allChannels.length && matchingChannels.length < limit; i += batchSize) {
+          const batch = allChannels.slice(i, i + batchSize);
+
+          console.log(
+            `[Filter] Enriching batch ${Math.floor(i / batchSize) + 1} (channels ${i + 1}-${i + batch.length})`
+          );
+
+          try {
+            await this.enrichChannelStats(page, batch, true); // Pass retry flag for filters
+          } catch (enrichError) {
+            console.error('Error enriching batch:', enrichError);
+            continue;
+          }
+
+          for (const channel of batch) {
+            processedCount++;
+
+            // Skip channels that failed enrichment (no subscriber data)
+            if (channel.subscriberCount === undefined || channel.subscriberCount === null) {
+              console.log(
+                `[Filter] ⚠ Skipped: ${channel.name} (failed to get subscriber count)`
+              );
+              continue;
+            }
+
+            const matches = this.channelMatchesFilters(channel, filters);
+
+            if (matches) {
+              matchingChannels.push(channel);
+              console.log(
+                `[Filter] ${matchingChannels.length}/${limit} - ✓ ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+
+              if (matchingChannels.length >= limit) {
+                break;
+              }
+            } else {
+              console.log(
+                `[Filter] ✗ Filtered out: ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+            }
+          }
+        }
+
+        console.log(
+          `[Filter] Result: ${matchingChannels.length} matching channels out of ${processedCount} checked (${allChannels.length} total found)`
+        );
+
+        return matchingChannels;
+      } else {
+        // No filters - just enrich and return
+        const channelsToReturn = allChannels.slice(0, limit);
+
+        if (channelsToReturn.length > 0) {
+          console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
+          try {
+            await this.enrichChannelStats(page, channelsToReturn);
+          } catch (enrichError) {
+            console.error('Error enriching channel stats:', enrichError);
+          }
+        }
+
+        return channelsToReturn;
+      }
+    } catch (error) {
+      console.error('[Innertube] Search error:', error);
+      throw new Error(
+        `Failed to search channels: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    } finally {
+      await page.close();
+    }
+  }
+
+  /**
+   * Legacy scrolling method (kept for reference, not used)
+   */
+  private async searchChannelsWithScrolling(
+    keyword: string,
+    limit: number = 50,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
   ): Promise<ChannelSearchResult[]> {
     if (!this.browser) {
       await this.initialize();
@@ -118,10 +280,7 @@ export class YouTubeScraper {
 
     const page = await this.browser!.newPage();
     const channels: ChannelSearchResult[] = [];
-
-    // Detect if running in serverless
-    const isServerless = !!process.env.VERCEL;
-    const waitTime = isServerless ? 500 : 1500; // Faster on serverless
+    const waitTime = 1500;
 
     try {
       // Set user agent to avoid detection
@@ -166,9 +325,12 @@ export class YouTubeScraper {
 
       // Scroll for more results if needed
       let scrollAttempts = 0;
-      const maxScrolls = isServerless ? 3 : 15; // More scrolls to get 50+ channels
+      const maxScrolls = 30; // Increased to allow for filtering
       let noNewChannelsCount = 0; // Track consecutive failures
       let previousHeight = 0;
+
+      console.log(`[Filter] Active filters: ${JSON.stringify(filters || {})}`);
+      console.log(`[Filter] Target: ${limit} matching channels`);
 
       while (channels.length < limit && scrollAttempts < maxScrolls) {
         // Get current scroll height
@@ -188,7 +350,7 @@ export class YouTubeScraper {
 
         // Wait for YouTube to load more content
         // Increase wait time significantly for more reliable loading
-        await new Promise((resolve) => setTimeout(resolve, isServerless ? 1500 : 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
 
         // Check if page height increased (indicates new content loaded)
         const newHeight = await page.evaluate(() => document.body.scrollHeight);
@@ -234,22 +396,84 @@ export class YouTubeScraper {
 
       console.log(`Scroll attempts: ${scrollAttempts}, Max allowed: ${maxScrolls}`);
 
-      console.log(`Total found: ${channels.length} channels for keyword: ${keyword}`);
+      console.log(`Total found: ${channels.length} channels (before filtering) for keyword: ${keyword}`);
 
-      // Enrich ALL channels up to the limit to ensure complete data
-      const channelsToReturn = channels.slice(0, limit);
+      // If filters are active, we need to enrich channels in batches and filter as we go
+      if (filters && (filters.minSubscribers || filters.maxSubscribers || filters.country)) {
+        console.log(`[Filter] Starting batch enrichment and filtering to get ${limit} matching channels...`);
 
-      if (channelsToReturn.length > 0) {
-        console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
-        try {
-          await this.enrichChannelStats(page, channelsToReturn);
-        } catch (enrichError) {
-          console.error('Error enriching channel stats:', enrichError);
-          // Continue even if enrichment fails
+        const matchingChannels: ChannelSearchResult[] = [];
+        const batchSize = 10; // Enrich 10 channels at a time
+        let processedCount = 0;
+
+        // Process channels in batches
+        for (let i = 0; i < channels.length && matchingChannels.length < limit; i += batchSize) {
+          const batch = channels.slice(i, i + batchSize);
+
+          console.log(
+            `[Filter] Enriching batch ${Math.floor(i / batchSize) + 1} (channels ${i + 1}-${i + batch.length})`
+          );
+
+          // Enrich this batch
+          try {
+            await this.enrichChannelStats(page, batch, true); // Pass retry flag for filters
+          } catch (enrichError) {
+            console.error('Error enriching batch:', enrichError);
+            continue;
+          }
+
+          // Filter the enriched batch
+          for (const channel of batch) {
+            processedCount++;
+
+            // Skip channels that failed enrichment (no subscriber data)
+            if (channel.subscriberCount === undefined || channel.subscriberCount === null) {
+              console.log(
+                `[Filter] ⚠ Skipped: ${channel.name} (failed to get subscriber count)`
+              );
+              continue;
+            }
+
+            const matches = this.channelMatchesFilters(channel, filters);
+
+            if (matches) {
+              matchingChannels.push(channel);
+              console.log(
+                `[Filter] ${matchingChannels.length}/${limit} - ✓ ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+
+              // Stop once we have enough matching channels
+              if (matchingChannels.length >= limit) {
+                break;
+              }
+            } else {
+              console.log(
+                `[Filter] ✗ Filtered out: ${channel.name} (${channel.subscriberCount?.toLocaleString() || 'N/A'} subs, ${channel.country || 'N/A'})`
+              );
+            }
+          }
         }
-      }
 
-      return channelsToReturn;
+        console.log(
+          `[Filter] Result: ${matchingChannels.length} matching channels out of ${processedCount} checked (${channels.length} total found)`
+        );
+
+        return matchingChannels;
+      } else {
+        // No subscriber/country filters - just enrich and return
+        const channelsToReturn = channels.slice(0, limit);
+
+        if (channelsToReturn.length > 0) {
+          console.log(`Getting accurate stats for all ${channelsToReturn.length} channels...`);
+          try {
+            await this.enrichChannelStats(page, channelsToReturn);
+          } catch (enrichError) {
+            console.error('Error enriching channel stats:', enrichError);
+          }
+        }
+
+        return channelsToReturn;
+      }
     } catch (error) {
       console.error('Error searching channels:', error);
       throw new Error(
@@ -424,45 +648,14 @@ export class YouTubeScraper {
           return; // Skip if no name found
         }
 
-        // Find subscriber count - try multiple approaches
+        // NOTE: Search results no longer show subscriber counts on initial load
+        // All subscriber/video counts are fetched from /about pages during enrichment
+        // These approaches have been removed as they had 0% success rate in testing
         let subscriberCount: number | undefined = undefined;
-        let subText = '';
 
-        // Try approach 1: #subscribers yt-formatted-string
-        let subEl = el.querySelector('#subscribers yt-formatted-string') as HTMLElement;
-        if (subEl) {
-          subText = subEl.textContent?.trim() || '';
-          subscriberCount = parseSubCount(subText);
-        }
-
-        // Try approach 2: #subscribers #text
-        if (subscriberCount === undefined) {
-          subEl = el.querySelector('#subscribers #text') as HTMLElement;
-          if (subEl) {
-            subText = subEl.textContent?.trim() || '';
-            subscriberCount = parseSubCount(subText);
-          }
-        }
-
-        // Try approach 3: just #subscribers, then parse the text
-        if (subscriberCount === undefined) {
-          subEl = el.querySelector('#subscribers') as HTMLElement;
-          if (subEl) {
-            subText = subEl.textContent?.trim() || '';
-            // The text might be like "190K subscribers" - extract just the number part
-            const cleanText = subText.split('subscribers')[0].trim();
-            subscriberCount = parseSubCount(cleanText);
-          }
-        }
-
-        // Try approach 4: #subscriber-count
-        if (subscriberCount === undefined) {
-          subEl = el.querySelector('#subscriber-count') as HTMLElement;
-          if (subEl) {
-            subText = subEl.textContent?.trim() || '';
-            subscriberCount = parseSubCount(subText);
-          }
-        }
+        // REMOVED: APPROACH 1-4 - Search result extraction (0% success rate)
+        // YouTube search results only show channel handles like "@ChannelName"
+        // Actual counts are only available on /about pages (handled in enrichment phase)
 
         // Find description
         let description = '';
@@ -549,48 +742,200 @@ export class YouTubeScraper {
   }
 
   /**
+   * Check if a channel matches the given filters
+   */
+  private channelMatchesFilters(
+    channel: ChannelSearchResult,
+    filters?: {
+      minSubscribers?: number;
+      maxSubscribers?: number;
+      country?: string;
+      excludeMusicChannels?: boolean;
+      excludeBrands?: boolean;
+    }
+  ): boolean {
+    if (!filters) return true;
+
+    // Check subscriber range (only if channel has subscriber data)
+    if (channel.subscriberCount !== undefined && channel.subscriberCount !== null) {
+      if (filters.minSubscribers !== undefined && channel.subscriberCount < filters.minSubscribers) {
+        return false;
+      }
+      if (filters.maxSubscribers !== undefined && channel.subscriberCount > filters.maxSubscribers) {
+        return false;
+      }
+    }
+
+    // Check country (strict filtering - exclude if country filter is set but channel has no country)
+    if (filters.country) {
+      if (!channel.country) {
+        // If country filter is active but channel has no country data, exclude it
+        return false;
+      }
+      if (channel.country.toLowerCase() !== filters.country.toLowerCase()) {
+        return false;
+      }
+    }
+
+    // Check music channel exclusion
+    if (filters.excludeMusicChannels && this.isMusicChannel(channel)) {
+      return false;
+    }
+
+    // Check brand channel exclusion
+    if (filters.excludeBrands && this.isBrandChannel(channel)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Detect if channel is a music channel
+   */
+  private isMusicChannel(channel: ChannelSearchResult): boolean {
+    const musicKeywords = [
+      'music',
+      'vevo',
+      'records',
+      'entertainment',
+      'audio',
+      'songs',
+      'official music',
+      'topic',
+      'hits',
+      'soundtrack',
+      'official artist channel'
+    ];
+
+    const lowerName = channel.name.toLowerCase();
+    const lowerDesc = (channel.description || '').toLowerCase();
+
+    for (const keyword of musicKeywords) {
+      if (lowerName.includes(keyword)) {
+        // Exception: channels that have music in context
+        if (
+          lowerName.includes('tutorial') ||
+          lowerName.includes('lesson') ||
+          lowerName.includes('education') ||
+          lowerName.includes('production') ||
+          lowerName.includes('theory')
+        ) {
+          continue;
+        }
+        return true;
+      }
+    }
+
+    if (lowerDesc.includes('official music video') || lowerDesc.includes('vevo')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Detect if channel is a brand/corporate channel
+   */
+  private isBrandChannel(channel: ChannelSearchResult): boolean {
+    const brandIndicators = [
+      'official',
+      'verified',
+      'corp',
+      'inc.',
+      'llc',
+      'ltd',
+      'company',
+      'corporation',
+      'enterprises',
+      'global',
+      'worldwide',
+      'international'
+    ];
+
+    const lowerName = channel.name.toLowerCase();
+    const lowerDesc = (channel.description || '').toLowerCase();
+
+    for (const indicator of brandIndicators) {
+      if (lowerName.includes(indicator) || lowerDesc.includes(indicator)) {
+        // Exception: personal brands
+        if (
+          lowerDesc.includes('creator') ||
+          lowerDesc.includes('youtuber') ||
+          lowerDesc.includes('content creator') ||
+          lowerDesc.includes('influencer')
+        ) {
+          continue;
+        }
+        return true;
+      }
+    }
+
+    // Check for very high subscriber count (likely brands)
+    if (channel.subscriberCount && channel.subscriberCount > 5000000) {
+      if (
+        lowerDesc.includes('creator') ||
+        lowerDesc.includes('personal') ||
+        lowerName.split(' ').length <= 3
+      ) {
+        return false;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Enrich channels with accurate subscriber and video counts from /about pages
    * This is a lightweight version that ONLY gets stats, not emails or social links
    */
-  private async enrichChannelStats(page: Page, channels: ChannelSearchResult[]): Promise<void> {
-    const isServerless = !!process.env.VERCEL;
-    const delay = isServerless ? 500 : 1000; // Faster on serverless
+  private async enrichChannelStats(page: Page, channels: ChannelSearchResult[], retryOnFailure: boolean = false): Promise<void> {
+    const delay = 1000;
+    const maxRetries = retryOnFailure ? 2 : 0; // Retry up to 2 times when filters are active
 
     for (let i = 0; i < channels.length; i++) {
       const channel = channels[i];
+      let retryCount = 0;
+      let enrichmentSuccess = false;
 
-      try {
-        console.log(`[Stats ${i + 1}/${channels.length}] Fetching stats for: ${channel.name}`);
-
-        // Visit /about page
-        const aboutUrl = channel.url.endsWith('/') ? `${channel.url}about` : `${channel.url}/about`;
-
-        // Listen to browser console logs
-        page.on('console', (msg) => {
-          const text = msg.text();
-          if (text.includes('[DEBUG]')) {
-            console.log(`  ${text}`);
+      while (!enrichmentSuccess && retryCount <= maxRetries) {
+        try {
+          if (retryCount > 0) {
+            console.log(`[Stats ${i + 1}/${channels.length}] Retry ${retryCount}/${maxRetries} for: ${channel.name}`);
+          } else {
+            console.log(`[Stats ${i + 1}/${channels.length}] Fetching stats for: ${channel.name}`);
           }
-        });
 
-        await page.goto(aboutUrl, {
-          waitUntil: 'networkidle0',
-          timeout: 15000,
-        });
+          // Visit /about page
+          const aboutUrl = channel.url.endsWith('/') ? `${channel.url}about` : `${channel.url}/about`;
 
-        // Wait for the page to fully load and render
-        await new Promise((resolve) => setTimeout(resolve, delay * 2));
+          // Listen to browser console logs
+          page.on('console', (msg) => {
+            const text = msg.text();
+            if (text.includes('[DEBUG]')) {
+              console.log(`  ${text}`);
+            }
+          });
 
-        // Scroll down to trigger lazy-loaded content
-        await page.evaluate(() => {
-          window.scrollTo(0, document.body.scrollHeight / 2);
-        });
-        await new Promise((resolve) => setTimeout(resolve, 500));
+          await page.goto(aboutUrl, {
+            waitUntil: 'networkidle0',
+            timeout: 20000, // Increased timeout
+          });
 
-        await page.evaluate(() => {
-          window.scrollTo(0, document.body.scrollHeight);
-        });
-        await new Promise((resolve) => setTimeout(resolve, 500));
+          // Wait for the page to fully load and render
+          await new Promise((resolve) => setTimeout(resolve, delay * 2));
+
+          // Scroll down to trigger lazy-loaded content
+          await page.evaluate(() => {
+            window.scrollTo(0, document.body.scrollHeight / 2);
+          });
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          await page.evaluate(() => {
+            window.scrollTo(0, document.body.scrollHeight);
+          });
+          await new Promise((resolve) => setTimeout(resolve, 500));
 
         // Extract subscriber and video count using multiple strategies
         const stats = await page.evaluate(() => {
@@ -617,6 +962,7 @@ export class YouTubeScraper {
 
           // Strategy 1: Try to find stats in structured elements
           const statsElements = document.querySelectorAll('yt-formatted-string');
+          console.log(`[ENRICHMENT STRATEGY 1] Found ${statsElements.length} yt-formatted-string elements`);
           for (const el of Array.from(statsElements)) {
             const text = el.textContent?.trim() || '';
 
@@ -625,6 +971,7 @@ export class YouTubeScraper {
               const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
               if (match) {
                 result.subscriberCount = parseCount(match[1]);
+                console.log(`[ENRICHMENT STRATEGY 1 - SUBS] Text: "${text}" | Match: "${match[1]}" | Parsed: ${result.subscriberCount}`);
               }
             }
 
@@ -633,62 +980,53 @@ export class YouTubeScraper {
               const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
               if (match) {
                 result.videoCount = parseCount(match[1]);
+                console.log(`[ENRICHMENT STRATEGY 1 - VIDEOS] Text: "${text}" | Match: "${match[1]}" | Parsed: ${result.videoCount}`);
               }
             }
           }
 
-          // Strategy 2: Parse from page text if not found
+          // Strategy 2: Page text parsing (FALLBACK - kept for reliability)
+          // Uncommented as fallback when Strategy 1 fails due to YouTube layout changes
           if (!result.subscriberCount || !result.videoCount) {
+            console.log(`[ENRICHMENT STRATEGY 2] Starting page text parsing (missing subs: ${!result.subscriberCount}, missing videos: ${!result.videoCount})`);
             const pageText = document.body.innerText;
-            const lines = pageText
-              .split('\n')
-              .map((l) => l.trim())
-              .filter((l) => l.length > 0);
+            const lines = pageText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
 
+            console.log(`[ENRICHMENT STRATEGY 2] Parsing ${lines.length} lines from page text`);
             for (const line of lines) {
-              // Extract subscriber count
               if (!result.subscriberCount && line.includes('subscriber')) {
                 const match = line.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
                 if (match) {
                   result.subscriberCount = parseCount(match[1]);
+                  console.log(`[ENRICHMENT STRATEGY 2 - SUBS] Line: "${line}" | Match: "${match[1]}" | Parsed: ${result.subscriberCount}`);
                 }
               }
-
-              // Extract video count
               if (!result.videoCount && line.includes('video')) {
                 const match = line.match(/([\d,.]+[KMB]?)\s*videos?/i);
                 if (match) {
                   result.videoCount = parseCount(match[1]);
+                  console.log(`[ENRICHMENT STRATEGY 2 - VIDEOS] Line: "${line}" | Match: "${match[1]}" | Parsed: ${result.videoCount}`);
                 }
               }
             }
           }
 
-          // Strategy 3: Check table-like structures (Stats section)
-          if (!result.subscriberCount || !result.videoCount) {
-            const tables = document.querySelectorAll('table, .about-stats, #right-column');
-            console.log(`[DEBUG] Found ${tables.length} table/stats elements to check`);
-
-            for (const table of Array.from(tables)) {
-              const text = table.textContent || '';
-
-              if (!result.subscriberCount && text.includes('subscriber')) {
-                const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
-                if (match) {
-                  result.subscriberCount = parseCount(match[1]);
-                  console.log(`[DEBUG] Found subscribers in table: ${match[1]}`);
-                }
-              }
-
-              if (!result.videoCount && text.includes('video')) {
-                const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
-                if (match) {
-                  result.videoCount = parseCount(match[1]);
-                  console.log(`[DEBUG] Found videos in table: ${match[1]}`);
-                }
-              }
-            }
-          }
+          // REMOVED: Strategy 3 - Table structures (0% usage in testing)
+          // Strategy 1 had 100% success rate, making this fallback unnecessary
+          // if (!result.subscriberCount || !result.videoCount) {
+          //   const tables = document.querySelectorAll('table, .about-stats, #right-column');
+          //   for (const table of Array.from(tables)) {
+          //     const text = table.textContent || '';
+          //     if (!result.subscriberCount && text.includes('subscriber')) {
+          //       const match = text.match(/([\d,.]+[KMB]?)\s*subscribers?/i);
+          //       if (match) result.subscriberCount = parseCount(match[1]);
+          //     }
+          //     if (!result.videoCount && text.includes('video')) {
+          //       const match = text.match(/([\d,.]+[KMB]?)\s*videos?/i);
+          //       if (match) result.videoCount = parseCount(match[1]);
+          //     }
+          //   }
+          // }
 
           console.log(
             `[DEBUG] Final extracted stats - Subs: ${result.subscriberCount || 'null'}, Videos: ${result.videoCount || 'null'}`
@@ -1113,16 +1451,39 @@ export class YouTubeScraper {
           channel.socialLinks = stats.socialLinks;
         }
 
-        console.log(
-          `[Stats ${i + 1}/${channels.length}] ${channel.name}: ${channel.subscriberCount || 'Unknown'} subs, ${channel.videoCount || 'Unknown'} videos, ${channel.viewCount || 'Unknown'} views, country: ${channel.country || 'Unknown'}, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
-        );
+        // Check if enrichment was successful (got subscriber count)
+        if (channel.subscriberCount !== undefined && channel.subscriberCount !== null) {
+          enrichmentSuccess = true;
+          console.log(
+            `[Stats ${i + 1}/${channels.length}] ✓ ${channel.name}: ${channel.subscriberCount.toLocaleString()} subs, ${channel.videoCount || 'Unknown'} videos, ${channel.viewCount || 'Unknown'} views, country: ${channel.country || 'Unknown'}, ${Object.keys(stats.socialLinks || {}).length} social links, ${channel.emails?.length || 0} emails`
+          );
+        } else {
+          console.log(
+            `[Stats ${i + 1}/${channels.length}] ⚠ Failed to get subscriber count for ${channel.name}`
+          );
+          retryCount++;
+          if (retryCount > maxRetries) {
+            console.log(
+              `[Stats ${i + 1}/${channels.length}] ✗ Max retries reached for ${channel.name}, skipping`
+            );
+          }
+        }
       } catch (error) {
         console.error(
           `[Stats ${i + 1}/${channels.length}] Error fetching stats for ${channel.name}:`,
           error
         );
-        // Continue with next channel
+        retryCount++;
+        if (retryCount > maxRetries) {
+          console.log(
+            `[Stats ${i + 1}/${channels.length}] ✗ Max retries reached for ${channel.name}, skipping`
+          );
+        } else {
+          // Wait before retry
+          await new Promise((resolve) => setTimeout(resolve, delay * 2));
+        }
       }
+      } // End while loop
 
       // Small delay between requests to avoid rate limiting
       if (i < channels.length - 1) {

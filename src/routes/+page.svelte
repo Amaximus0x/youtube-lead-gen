@@ -2,10 +2,15 @@
 	import SearchForm from '$lib/components/search/SearchForm.svelte';
 	import ChannelTable from '$lib/components/results/ChannelTable.svelte';
 	import { channelsStore } from '$lib/stores/channels';
+	import { exportChannelsToCSV } from '$lib/utils/export';
 
 	let activeTab: 'generate' | 'extract' = 'generate';
 
 	$: hasResults = $channelsStore.channels.length > 0;
+
+	function handleExportData() {
+		exportChannelsToCSV($channelsStore.channels);
+	}
 </script>
 
 <div class="mx-auto max-w-7xl">
@@ -23,7 +28,7 @@
 			class="px-8 py-3 text-lg text-black transition-all btn btn-primary"
 			class:ring-4={activeTab === 'generate'}
 			class:ring-blue-300={activeTab === 'generate'}
-			onclick={() => (activeTab = 'generate')}
+			on:click={() => (activeTab = 'generate')}
 		>
 			<svg class="inline w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path
@@ -39,7 +44,7 @@
 			class="px-8 py-3 text-lg transition-all btn btn-secondary"
 			class:ring-4={activeTab === 'extract'}
 			class:ring-purple-300={activeTab === 'extract'}
-			onclick={() => (activeTab = 'extract')}
+			on:click={() => (activeTab = 'extract')}
 		>
 			<svg class="inline w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path
@@ -86,7 +91,7 @@
 							/>
 						</svg>
 						<p class="text-lg text-gray-600">Searching YouTube channels...</p>
-						<p class="mt-2 text-sm text-gray-500">This may take 10-30 seconds</p>
+						<p class="mt-2 text-sm text-gray-500">This may take some time</p>
 					</div>
 				{:else}
 					<ChannelTable />
@@ -119,11 +124,26 @@
 							: ''} ready for email extraction.
 					</p>
 					<p class="mb-6 text-sm text-gray-500">
-						Email extraction will be implemented in Phase 3.
+						Email extraction from social media will be implemented in Phase 2.
 					</p>
-					<button class="btn btn-primary" disabled>
-						Extract Emails (Coming Soon)
-					</button>
+					<div class="flex justify-center">
+						<button class="btn btn-secondary" on:click={handleExportData}>
+							<svg
+								class="inline w-5 h-5 mr-2"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+								/>
+							</svg>
+							Export Data (CSV)
+						</button>
+					</div>
 				</div>
 			{:else}
 				<div class="py-12 text-center text-gray-500">

@@ -1,43 +1,59 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
-	import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
+	import { fetchPage } from '$lib/api/pagination';
+	import type { ChannelSearchResult } from '$lib/types/api';
 
 	$: channels = $channelsStore.channels;
 	$: stats = $channelsStore.stats;
 	$: pagination = $channelsStore.pagination;
 	$: isLoadingMore = $channelsStore.isLoadingMore;
+	$: currentKeyword = $channelsStore.currentKeyword;
+	$: searchLimit = $channelsStore.searchLimit;
+	$: searchFilters = $channelsStore.searchFilters;
 
 	let selectedChannel: ChannelSearchResult | null = null;
 	let showEmailModal = false;
 
-	async function loadMore() {
-		if (!pagination || !pagination.hasMore || isLoadingMore || !stats) return;
+	async function handleLoadMore() {
+		if (!pagination || !currentKeyword) return;
 
 		channelsStore.setLoadingMore(true);
 
 		try {
-			const response = await fetch('/api/youtube/load-more', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					keyword: stats.keyword,
-					page: pagination.currentPage + 1,
-					pageSize: pagination.pageSize
-				})
-			});
+			const nextPage = pagination.currentPage + 1;
+			console.log('[LoadMore] Fetching page', nextPage);
 
-			const data = await response.json();
+			const data = await fetchPage(
+				currentKeyword,
+				nextPage,
+				pagination.pageSize,
+				pagination.searchSessionId,
+				searchLimit || undefined,
+				searchFilters || undefined
+			);
 
-			if (!response.ok) {
-				throw new Error(data.message || data.error || 'Failed to load more');
+			console.log('[LoadMore] Page', nextPage, 'loaded successfully');
+			console.log('[LoadMore] Response data:', data);
+			console.log('[LoadMore] New channels count:', data.channels?.length);
+			console.log('[LoadMore] New pagination:', data.pagination);
+
+			// Validate response
+			if (!data.channels || !Array.isArray(data.channels)) {
+				throw new Error('Invalid response: channels data is missing or not an array');
 			}
 
-			channelsStore.appendChannels(data.channels, data.pagination);
+			// Append new channels to existing list
+			console.log('[LoadMore] Appending', data.channels.length, 'channels to store');
+			channelsStore.appendChannels(data.channels, data.stats, data.pagination);
+			console.log('[LoadMore] Store updated successfully');
 		} catch (error) {
-			console.error('Load more error:', error);
+			console.error('[LoadMore] Error loading more channels:', error);
 			channelsStore.setError(
 				error instanceof Error ? error.message : 'Failed to load more channels'
 			);
+		} finally {
+			// Ensure loading state is reset even if there's an error
+			channelsStore.setLoadingMore(false);
 		}
 	}
 
@@ -121,11 +137,7 @@
 			</div>
 			<div>
 				<span class="font-semibold">Found:</span>
-				<span class="text-green-700">{stats.total}</span>
-			</div>
-			<div>
-				<span class="font-semibold">After filters:</span>
-				<span class="text-purple-700">{stats.filtered}</span>
+				<span class="text-green-700">{stats.filtered}</span>
 			</div>
 		</div>
 	</div>
@@ -256,50 +268,51 @@
 
 	<div class="mt-4 flex flex-col items-center gap-3">
 		<div class="text-sm text-gray-500 text-center">
-			Showing {channels.length}
-			{#if pagination && pagination.totalChannels > 0}
-				of {pagination.totalChannels}
+			Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
+			{#if stats && stats.keyword}
+				for "{stats.keyword}"
 			{/if}
-			channel{channels.length !== 1 ? 's' : ''}
-			{#if stats && stats.remaining && stats.remaining > 0}
-				<span class="text-blue-600">({stats.remaining} more available)</span>
+			{#if pagination && pagination.totalChannels > channels.length}
+				out of {pagination.totalChannels} found
 			{/if}
 		</div>
 
-		{#if pagination && pagination.hasMore}
+		{#if pagination && (pagination.hasMore || pagination.currentPage < pagination.totalPages || (searchLimit && channels.length < searchLimit))}
 			<button
-				on:click={loadMore}
+				on:click={handleLoadMore}
 				disabled={isLoadingMore}
-				class="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+				class="px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
 			>
 				{#if isLoadingMore}
-					<span class="flex items-center gap-2">
-						<svg
-							class="animate-spin h-4 w-4"
-							xmlns="http://www.w3.org/2000/svg"
+					<svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
+						<circle
+							class="opacity-25"
+							cx="12"
+							cy="12"
+							r="10"
+							stroke="currentColor"
+							stroke-width="4"
 							fill="none"
-							viewBox="0 0 24 24"
-						>
-							<circle
-								class="opacity-25"
-								cx="12"
-								cy="12"
-								r="10"
-								stroke="currentColor"
-								stroke-width="4"
-							/>
-							<path
-								class="opacity-75"
-								fill="currentColor"
-								d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-							/>
-						</svg>
-						Loading...
-					</span>
+						/>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						/>
+					</svg>
+					Loading...
 				{:else}
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+					</svg>
 					Load More Channels
 				{/if}
 			</button>
+			{#if searchLimit && channels.length < searchLimit}
+				<p class="text-xs text-gray-500">
+					{searchLimit - channels.length} more channel{searchLimit - channels.length !== 1 ? 's' : ''} available (limit: {searchLimit})
+				</p>
+			{/if}
 		{/if}
 	</div>
 {:else}

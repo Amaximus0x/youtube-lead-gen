@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { ChannelSearchResult, SearchStats, Pagination, SearchFilters } from '$lib/types/api';
+import type { ChannelSearchResult, SearchStats, Pagination } from '$lib/types/api';
 
 export interface SearchState {
 	isSearching: boolean;
@@ -9,8 +9,6 @@ export interface SearchState {
 	stats: SearchStats | null;
 	pagination: Pagination | null;
 	currentKeyword: string | null;
-	searchLimit: number | null;
-	searchFilters: SearchFilters | null;
 }
 
 const initialState: SearchState = {
@@ -20,9 +18,7 @@ const initialState: SearchState = {
 	error: null,
 	stats: null,
 	pagination: null,
-	currentKeyword: null,
-	searchLimit: null,
-	searchFilters: null
+	currentKeyword: null
 };
 
 function createChannelsStore() {
@@ -37,27 +33,13 @@ function createChannelsStore() {
 			channels: ChannelSearchResult[],
 			stats: SearchStats | null,
 			pagination: Pagination | null
-		,
-			searchLimit?: number,
-			searchFilters?: SearchFilters
 		) => {
-			// Fix for missing totalPages in backend response (fallback calculation)
-			let fixedPagination = pagination;
-			if (pagination && !pagination.totalPages && pagination.totalChannels && pagination.pageSize) {
-				fixedPagination = {
-					...pagination,
-					totalPages: Math.ceil(pagination.totalChannels / pagination.pageSize)
-				};
-			}
-
 			update((state) => ({
 				...state,
 				channels,
 				stats,
-				pagination: fixedPagination,
+				pagination,
 				currentKeyword: stats?.keyword || state.currentKeyword,
-				searchLimit: searchLimit !== undefined ? searchLimit : state.searchLimit,
-				searchFilters: searchFilters !== undefined ? searchFilters : state.searchFilters,
 				isSearching: false,
 				isLoadingMore: false,
 				error: null
@@ -65,32 +47,15 @@ function createChannelsStore() {
 		},
 		appendChannels: (
 			channels: ChannelSearchResult[],
-			stats: SearchStats | null,
 			pagination: Pagination | null
 		) => {
-			console.log('[Store] appendChannels called with:', channels.length, 'new channels');
-
-			// Fix for missing totalPages in backend response (fallback calculation)
-			let fixedPagination = pagination;
-			if (pagination && !pagination.totalPages && pagination.totalChannels && pagination.pageSize) {
-				fixedPagination = {
-					...pagination,
-					totalPages: Math.ceil(pagination.totalChannels / pagination.pageSize)
-				};
-			}
-
-			update((state) => {
-				const newState = {
-					...state,
-					channels: [...state.channels, ...channels],
-					stats,
-					pagination: fixedPagination,
-					isLoadingMore: false,
-					error: null
-				};
-				console.log('[Store] State updated. Total channels now:', newState.channels.length);
-				return newState;
-			});
+			update((state) => ({
+				...state,
+				channels: [...state.channels, ...channels],
+				pagination,
+				isLoadingMore: false,
+				error: null
+			}));
 		},
 		setLoadingMore: (isLoadingMore: boolean) => {
 			update((state) => ({ ...state, isLoadingMore, error: null }));
