@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { channelsStore } from '$lib/stores/channels';
-	import { apiPost } from '$lib/api/client';
+	import { apiPost, apiGet } from '$lib/api/client';
 	import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
 
 	let keyword = '';
@@ -51,9 +51,19 @@
 
 			console.log('[Search] Response received:', response);
 
-			// Backend returns { status: "success", data: { channels, stats, pagination, enrichmentQueued } }
+			// New flow: backend may return a jobId for asynchronous searches
+			// Example initial response: { status: 'success', data: { jobId: '1' } }
 			if (response.status === 'success' && response.data) {
-				const { channels, stats, pagination, enrichmentQueued } = response.data;
+				// If server returned jobId, start polling for results
+				if ((response.data as any).jobId) {
+					const jobId = (response.data as any).jobId as string;
+					console.log('[Search] Received jobId:', jobId, 'starting polling');
+					await pollSearchJob(jobId, requestBody.filters, totalChannelsLimit);
+					return;
+				}
+
+				// Otherwise assume server returned final search data directly
+				const { channels, stats, pagination, enrichmentQueued } = response.data as any;
 
 				// Validate response data
 				if (!channels || !Array.isArray(channels)) {
@@ -103,7 +113,7 @@
 		console.log('[Polling] Starting enrichment polling for', channelIds.length, 'channels');
 
 		// Poll every 10 seconds
-		enrichmentPollingInterval = setInterval(async () => {
+		enrichmentPollingInterval = window.setInterval(async () => {
 			try {
 				const data = await apiPost<any>('/enrichment/status', { channelIds });
 
@@ -130,13 +140,74 @@
 		}, 10000); // Poll every 10 seconds
 
 		// Stop polling after 5 minutes
-		setTimeout(() => {
+		window.setTimeout(() => {
 			if (enrichmentPollingInterval) {
 				console.log('[Polling] Timeout reached, stopping polling');
-				clearInterval(enrichmentPollingInterval);
+				clearInterval(enrichmentPollingInterval as any);
 				enrichmentPollingInterval = null;
 			}
 		}, 300000); // 5 minutes
+	}
+
+	// Poll a search job until completion or timeout
+	async function pollSearchJob(jobId: string, filters: any, searchLimit: number) {
+		const pollInterval = 2000; // 2 seconds
+		const timeoutMs = 2 * 60 * 1000; // 2 minutes
+		let elapsed = 0;
+
+		// Ensure the UI indicates searching
+		channelsStore.setSearching(true);
+
+		while (elapsed < timeoutMs) {
+			try {
+				console.log('[Polling] Checking search job', jobId);
+				// Poll the job endpoint using GET (server expects GET for job polling)
+				const res = await apiGet<any>(`/youtube/search/${jobId}`);
+
+				// If backend returns status field inside data, read it
+				const data = res?.data || res;
+
+				if (data?.status === 'processing') {
+					// Still processing - wait and continue
+					console.log('[Polling] Job still processing');
+				} else if (data?.status === 'done' || data?.channels) {
+					// Job completed - server may return final payload directly
+					const channels = data.channels || res.channels || [];
+					const stats = data.stats || res.stats || null;
+					const pagination = data.pagination || res.pagination || null;
+
+					console.log('[Polling] Job done, received', channels.length, 'channels');
+
+					// Update store and stop polling
+					channelsStore.setChannels(channels, stats, pagination, searchLimit, filters);
+					channelsStore.setSearching(false);
+					return;
+				} else if ((res as any).status === 'success' && (res as any).data && (res as any).data.channels) {
+					// Some endpoints return {status: 'success', data: {channels...}}
+					const payload = (res as any).data;
+					channelsStore.setChannels(payload.channels, payload.stats, payload.pagination, searchLimit, filters);
+					channelsStore.setSearching(false);
+					return;
+				} else {
+					// Unexpected response format - throw to surface error
+					throw new Error('Unexpected polling response format');
+				}
+			} catch (err) {
+				console.error('[Polling] Error while polling search job:', err);
+				// If network or server error, surface to user and stop polling
+				channelsStore.setError(err instanceof Error ? err.message : 'Polling error');
+				return;
+			}
+
+			// Wait before next poll
+			await new Promise((r) => setTimeout(r, pollInterval));
+			elapsed += pollInterval;
+		}
+
+		// Timeout reached
+		channelsStore.setError('Search timed out. Please try again later.');
+		channelsStore.setSearching(false);
+		console.log('[Polling] Timeout reached for job', jobId);
 	}
 
 	function handleReset() {
