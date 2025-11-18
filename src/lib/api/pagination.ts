@@ -10,14 +10,16 @@ export async function fetchPage(
 	pageSize: number = 15,
 	searchSessionId?: string,
 	limit?: number,
-	filters?: SearchRequest['filters']
+	filters?: SearchRequest['filters'],
+	offset?: number  // Add offset parameter for accurate pagination with dynamic pageSize
 ): Promise<SearchResponse> {
 	const requestBody: SearchRequest = {
 		keyword,
 		page,
 		pageSize,
 		limit: limit || 15, // Default to 15 for on-demand fetching
-		filters
+		filters,
+		offset  // Send the actual offset (current channel count)
 	};
 
 	// Add searchSessionId for subsequent pages

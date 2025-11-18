@@ -80,9 +80,31 @@ function createChannelsStore() {
 			}
 
 			update((state) => {
+				// Get existing channel IDs for deduplication
+				const existingChannelIds = new Set(state.channels.map((ch) => ch.channelId));
+
+				// Filter out duplicate channels
+				const uniqueNewChannels = channels.filter((ch) => !existingChannelIds.has(ch.channelId));
+
+				console.log('[Store] Existing channels:', state.channels.length);
+				console.log('[Store] New channels received:', channels.length);
+				console.log('[Store] Unique new channels after deduplication:', uniqueNewChannels.length);
+
+				if (uniqueNewChannels.length < channels.length) {
+					const duplicateIds = channels
+						.filter((ch) => existingChannelIds.has(ch.channelId))
+						.map((ch) => ch.channelId);
+					console.warn(
+						'[Store] Duplicate channels detected:',
+						channels.length - uniqueNewChannels.length,
+						'duplicates removed'
+					);
+					console.warn('[Store] Duplicate channel IDs:', duplicateIds);
+				}
+
 				const newState = {
 					...state,
-					channels: [...state.channels, ...channels],
+					channels: [...state.channels, ...uniqueNewChannels],
 					stats,
 					pagination: fixedPagination,
 					isLoadingMore: false,

@@ -180,9 +180,9 @@
 				type="number"
 				id="totalChannelsLimit"
 				bind:value={totalChannelsLimit}
-				min="10"
+				min="1"
 				max="100"
-				step="10"
+			
 				class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 			/>
 			<p class="mt-1 text-sm text-gray-500">

@@ -77,4 +77,5 @@ export interface SearchRequest {
   pageSize?: number;
   searchSessionId?: string;
   filters?: SearchFilters;
+  offset?: number; // Number of channels already loaded (for dynamic pageSize)
 }
