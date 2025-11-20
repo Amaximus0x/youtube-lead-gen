@@ -34,7 +34,7 @@
       const requestBody: SearchRequest = {
         keyword: keyword.trim(),
         page: 1,
-        pageSize: 15, // Fixed page size for initial load
+        pageSize: totalChannelsLimit, // Request all results at once (user's desired limit)
         limit: totalChannelsLimit, // Total channels to scrape from YouTube
         filters: {
           minSubscribers: minSubscribers || undefined,
@@ -157,7 +157,7 @@
   // Poll a search job until completion or timeout
   async function pollSearchJob(jobId: string, filters: any, searchLimit: number) {
     const pollInterval = 2000; // 2 seconds
-    const timeoutMs = 2 * 60 * 1000; // 2 minutes
+    const timeoutMs = 5 * 60 * 1000; // 5 minutes (enrichment can take 3-4 minutes for large batches)
     let elapsed = 0;
 
     // Ensure the UI indicates searching
