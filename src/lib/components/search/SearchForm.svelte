@@ -81,13 +81,11 @@
           requestBody.filters
         );
 
-        // If enrichment is queued, start polling for updates
-        // DISABLED: Enrichment polling temporarily disabled
-        // if (enrichmentQueued && channels.length > 0) {
-        // 	const channelIds = channels.map((c) => c.channelId);
-        // 	console.log('[Search] Starting enrichment polling for', channelIds.length, 'channels');
-        // 	startEnrichmentPolling(channelIds);
-        // }
+        // If enrichment is queued, start polling for enriched updates
+        if (enrichmentQueued && pagination?.searchSessionId) {
+          console.log('[Search] Starting enrichment polling for session:', pagination.searchSessionId);
+          startEnrichmentProgressPolling(pagination.searchSessionId, keyword.trim(), requestBody.filters, totalChannelsLimit);
+        }
       } else {
         // This shouldn't happen if the API client is working correctly, but just in case
         throw new Error('Unexpected response format from server');
@@ -109,6 +107,118 @@
 
   let enrichmentPollingInterval: number | null = null;
 
+  /**
+   * Poll for enrichment progress by re-fetching the search session
+   * This fetches updated channel data as enrichment completes in the background
+   */
+  function startEnrichmentProgressPolling(sessionId: string, searchKeyword: string, filters: any, searchLimit: number) {
+    // Clear any existing polling
+    if (enrichmentPollingInterval) {
+      clearInterval(enrichmentPollingInterval);
+    }
+
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('[Enrichment Polling] 🚀 Starting for session:', sessionId);
+    console.log('[Enrichment Polling] ⏱️ Poll interval: 3 seconds');
+    console.log('[Enrichment Polling] 🎯 Target channels:', searchLimit);
+    console.log('═══════════════════════════════════════════════════════════');
+
+    let pollCount = 0;
+    const pollStartTime = Date.now();
+
+    // Poll every 3 seconds for enrichment updates
+    enrichmentPollingInterval = window.setInterval(async () => {
+      try {
+        pollCount++;
+        const elapsedTime = ((Date.now() - pollStartTime) / 1000).toFixed(1);
+
+        console.log(`\n[Enrichment Polling] 🔄 Poll #${pollCount} (${elapsedTime}s elapsed)`);
+
+        // Re-fetch page 1 to get enriched channels
+        const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', {
+          keyword: searchKeyword, // Backend requires keyword even for pagination
+          page: 1,
+          pageSize: searchLimit,
+          limit: searchLimit,
+          searchSessionId: sessionId,
+          filters: filters,
+        });
+
+        console.log(`[Enrichment Polling] 📡 Response status:`, response.status);
+
+        if (response.status === 'success' && response.data) {
+          const { channels, stats, pagination, enrichmentQueued } = response.data as any;
+
+          // Count how many channels are enriched (have subscriber count)
+          const enrichedCount = channels.filter((ch: any) => ch.subscriberCount !== undefined && ch.subscriberCount !== null).length;
+          const enrichmentProgress = ((enrichedCount / channels.length) * 100).toFixed(1);
+
+          console.log(`[Enrichment Polling] 📊 Progress: ${enrichedCount}/${channels.length} channels (${enrichmentProgress}%)`);
+          console.log(`[Enrichment Polling] 📈 Stats:`, {
+            total: stats?.total,
+            filtered: stats?.filtered,
+            displayed: stats?.displayed,
+          });
+          console.log(`[Enrichment Polling] 🔔 Enrichment queued:`, enrichmentQueued);
+
+          // Log sample enriched channel
+          const firstEnriched = channels.find((ch: any) => ch.subscriberCount);
+          if (firstEnriched) {
+            console.log(`[Enrichment Polling] ✅ Sample enriched:`, {
+              name: firstEnriched.name,
+              subs: firstEnriched.subscriberCount?.toLocaleString(),
+              country: firstEnriched.country || 'N/A',
+            });
+          }
+
+          // Update the store with latest enriched data
+          channelsStore.setChannels(
+            channels,
+            stats,
+            pagination,
+            searchLimit,
+            filters
+          );
+
+          // Stop polling if enrichment is complete
+          if (!enrichmentQueued || enrichedCount === channels.length) {
+            const totalTime = ((Date.now() - pollStartTime) / 1000).toFixed(1);
+            console.log('\n═══════════════════════════════════════════════════════════');
+            console.log(`[Enrichment Polling] ✅ COMPLETE! All ${channels.length} channels enriched`);
+            console.log(`[Enrichment Polling] ⏱️ Total time: ${totalTime}s`);
+            console.log(`[Enrichment Polling] 🔄 Total polls: ${pollCount}`);
+            console.log('═══════════════════════════════════════════════════════════\n');
+
+            if (enrichmentPollingInterval) {
+              clearInterval(enrichmentPollingInterval);
+              enrichmentPollingInterval = null;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[Enrichment Polling] ❌ Error:', error);
+        console.log('[Enrichment Polling] 🔄 Continuing polling despite error...');
+        // Don't stop polling on error - server might be temporarily busy
+      }
+    }, 3000); // Poll every 3 seconds
+
+    // Stop polling after 10 minutes (enrichment should complete by then)
+    window.setTimeout(() => {
+      if (enrichmentPollingInterval) {
+        const totalTime = ((Date.now() - pollStartTime) / 1000).toFixed(1);
+        console.log('\n═══════════════════════════════════════════════════════════');
+        console.log(`[Enrichment Polling] ⏰ TIMEOUT reached after ${totalTime}s`);
+        console.log(`[Enrichment Polling] 🔄 Total polls: ${pollCount}`);
+        console.log('[Enrichment Polling] 🛑 Stopping polling');
+        console.log('═══════════════════════════════════════════════════════════\n');
+
+        clearInterval(enrichmentPollingInterval as any);
+        enrichmentPollingInterval = null;
+      }
+    }, 600000); // 10 minutes
+  }
+
+  // Legacy enrichment polling (kept for compatibility)
   function startEnrichmentPolling(channelIds: string[]) {
     // Clear any existing polling
     if (enrichmentPollingInterval) {
@@ -266,9 +376,9 @@
         type="number"
         id="totalChannelsLimit"
         bind:value={totalChannelsLimit}
-        min="10"
+        min="5"
         max="100"
-        step="10"
+        step="5"
         class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
       <p class="mt-1 text-sm text-gray-500">
