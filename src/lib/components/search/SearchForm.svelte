@@ -15,6 +15,10 @@
   let country = '';
   let englishOnly = false;
 
+  // Streaming progress
+  let searchProgress = 0;
+  let statusMessage = '';
+
   async function handleSearch() {
     // Validate input
     if (!keyword.trim()) {
@@ -264,75 +268,138 @@
     }, 300000); // 5 minutes
   }
 
-  // Poll a search job until completion or timeout
+  // Poll a search job until completion or timeout (STREAMING VERSION)
   async function pollSearchJob(jobId: string, filters: any, searchLimit: number) {
     const pollInterval = 2000; // 2 seconds
-    const timeoutMs = 5 * 60 * 1000; // 5 minutes (enrichment can take 3-4 minutes for large batches)
-    let elapsed = 0;
+    const maxPolls = 300; // 10 minutes max
+    let pollCount = 0;
+    let lastChannelCount = 0;
 
-    // Ensure the UI indicates searching
     channelsStore.setSearching(true);
+    channelsStore.setEnriching(true);
 
-    while (elapsed < timeoutMs) {
+    while (pollCount < maxPolls) {
       try {
-        console.log('[Polling] Checking search job', jobId);
-        // Poll the job endpoint using GET (server expects GET for job polling)
-        const res = await apiGet<any>(`/youtube/search/${jobId}`);
+        console.log(`[Streaming] Poll #${pollCount + 1}: Checking job ${jobId}`);
 
-        // If backend returns status field inside data, read it
+        const res = await apiGet<any>(`/youtube/search/${jobId}`);
         const data = res?.data || res;
 
-        if (data?.status === 'processing') {
-          // Still processing - wait and continue
-          console.log('[Polling] Job still processing');
-        } else if (data?.status === 'done' || data?.channels) {
-          // Job completed - server may return final payload directly
-          const channels = data.channels || res.channels || [];
-          const stats = data.stats || res.stats || null;
-          const pagination = data.pagination || res.pagination || null;
+        // Update progress
+        if (data.progress !== undefined) {
+          searchProgress = data.progress;
+          channelsStore.setProgress(data.progress, data.message || statusMessage);
+        }
 
-          console.log('[Polling] Job done, received', channels.length, 'channels');
+        // Update status message
+        if (data.status) {
+          statusMessage = getStatusMessage(data.status, data.stats);
+        }
 
-          // Update store and stop polling
-          channelsStore.setChannels(channels, stats, pagination, searchLimit, filters);
-          channelsStore.setSearching(false);
-          return;
-        } else if (
-          (res as any).status === 'success' &&
-          (res as any).data &&
-          (res as any).data.channels
-        ) {
-          // Some endpoints return {status: 'success', data: {channels...}}
-          const payload = (res as any).data;
+        // Handle streaming updates
+        if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
+          const currentCount = data.channels.length;
+
+          if (currentCount > lastChannelCount) {
+            console.log(
+              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new)`
+            );
+
+            // Update UI with new channels
+            channelsStore.setChannels(
+              data.channels,
+              data.stats,
+              {
+                searchSessionId: data.sessionId,
+                hasMore: !data.isComplete,
+                currentPage: 1,
+                pageSize: searchLimit,
+                totalChannels: currentCount,
+                totalPages: 1
+              },
+              searchLimit,
+              filters
+            );
+
+            lastChannelCount = currentCount;
+          }
+
+          // Keep enriching indicator visible
+          channelsStore.setEnriching(!data.isComplete);
+          channelsStore.setSearching(false); // Hide main search spinner
+        }
+
+        // Handle collecting status
+        if (data.status === 'collecting' || data.status === 'collecting_more') {
+          console.log(`[Streaming] ${data.status}...`);
+          statusMessage = getStatusMessage(data.status, data.stats);
+        }
+
+        // Completed
+        if (data.status === 'completed') {
+          console.log('[Streaming] Search completed!');
+
           channelsStore.setChannels(
-            payload.channels,
-            payload.stats,
-            payload.pagination,
+            data.channels,
+            data.stats,
+            {
+              searchSessionId: data.sessionId,
+              hasMore: false,
+              currentPage: 1,
+              pageSize: searchLimit,
+              totalChannels: data.channels.length,
+              totalPages: 1
+            },
             searchLimit,
             filters
           );
+
           channelsStore.setSearching(false);
+          channelsStore.setEnriching(false);
+          searchProgress = 100;
+          statusMessage = data.stats?.message || 'Search complete!';
+
           return;
-        } else {
-          // Unexpected response format - throw to surface error
-          throw new Error('Unexpected polling response format');
         }
+
+        // Error handling
+        if (data.status === 'failed' || data.error) {
+          throw new Error(data.error || 'Search failed');
+        }
+
       } catch (err) {
-        console.error('[Polling] Error while polling search job:', err);
-        // If network or server error, surface to user and stop polling
+        console.error('[Streaming] Polling error:', err);
         channelsStore.setError(err instanceof Error ? err.message : 'Polling error');
+        channelsStore.setSearching(false);
+        channelsStore.setEnriching(false);
         return;
       }
 
-      // Wait before next poll
+      pollCount++;
       await new Promise((r) => setTimeout(r, pollInterval));
-      elapsed += pollInterval;
     }
 
-    // Timeout reached
-    channelsStore.setError('Search timed out. Please try again later.');
+    // Timeout
+    channelsStore.setError('Search timed out after 10 minutes');
     channelsStore.setSearching(false);
-    console.log('[Polling] Timeout reached for job', jobId);
+    channelsStore.setEnriching(false);
+  }
+
+  function getStatusMessage(status: string, stats: any): string {
+    switch (status) {
+      case 'collecting':
+        return 'Collecting channels from YouTube...';
+      case 'streaming':
+        return stats
+          ? `Found ${stats.passing}/${stats.target} channels, searching for more...`
+          : 'Processing channels...';
+      case 'collecting_more':
+        return 'Collecting additional channels...';
+      case 'completed':
+        return 'Search complete!';
+      default:
+        return 'Processing...';
+    }
   }
 
   function handleReset() {
@@ -567,6 +634,28 @@
       </button>
     </div>
   </form>
+
+  <!-- Progress Bar UI -->
+  {#if $channelsStore.isSearching || $channelsStore.isEnriching}
+    <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-blue-700">{statusMessage}</span>
+        <span class="text-sm text-blue-600">{searchProgress}%</span>
+      </div>
+      <div class="w-full bg-blue-200 rounded-full h-2.5">
+        <div
+          class="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
+          style="width: {searchProgress}%"
+        ></div>
+      </div>
+      {#if $channelsStore.stats}
+        <p class="text-xs text-blue-600 mt-2">
+          Enriched {$channelsStore.stats.enriched} channels,
+          {$channelsStore.stats.passing} passed filters
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Error Display -->
   {#if $channelsStore.error}

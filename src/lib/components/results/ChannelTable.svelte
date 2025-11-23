@@ -7,6 +7,7 @@
 	$: stats = $channelsStore.stats;
 	$: pagination = $channelsStore.pagination;
 	$: isLoadingMore = $channelsStore.isLoadingMore;
+	$: isEnriching = $channelsStore.isEnriching;
 	$: currentKeyword = $channelsStore.currentKeyword;
 	$: searchLimit = $channelsStore.searchLimit;
 	$: searchFilters = $channelsStore.searchFilters;
@@ -267,6 +268,46 @@
 						</td>
 					</tr>
 				{/each}
+
+				<!-- Streaming Indicator -->
+				{#if isEnriching}
+					<tr>
+						<td colspan="8" class="px-4 py-6 bg-blue-50">
+							<div class="flex flex-col items-center gap-3">
+								<svg
+									class="w-8 h-8 text-blue-600 animate-spin"
+									viewBox="0 0 24 24"
+								>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+										fill="none"
+									/>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									/>
+								</svg>
+								<div class="text-center">
+									<p class="text-sm font-medium text-blue-700">
+										Enriching more channels...
+									</p>
+									{#if stats}
+										<p class="text-xs text-blue-600 mt-1">
+											{stats.passing}/{stats.target} channels found
+											• {stats.enriched} processed
+										</p>
+									{/if}
+								</div>
+							</div>
+						</td>
+					</tr>
+				{/if}
 			</tbody>
 		</table>
 	</div>
