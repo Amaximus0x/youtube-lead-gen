@@ -129,56 +129,70 @@
 	}
 </script>
 
-{#if stats}
-	<div class="p-4 mb-4 border border-blue-200 rounded-lg bg-blue-50">
-		<div class="flex items-center gap-4">
-			<div>
-				<span class="font-semibold">Keyword:</span>
-				<span class="text-blue-700">{stats.keyword}</span>
+{#if channels.length > 0}
+	<!-- Sticky Results Section -->
+	<div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+		<!-- Results Header (becomes sticky) -->
+		{#if stats}
+			<div class="p-4 border-b border-blue-200 bg-blue-50">
+				<div class="flex items-center gap-4">
+					<div>
+						<span class="font-semibold">Search Results</span>
+					</div>
+					<div>
+						<span class="font-semibold">Keyword:</span>
+						<span class="text-blue-700">{stats.keyword}</span>
+					</div>
+					<div>
+						<span class="font-semibold">Found:</span>
+						<span class="text-green-700">{stats.displayed}</span>
+					</div>
+				</div>
 			</div>
-			<div>
-				<span class="font-semibold">Found:</span>
-				<span class="text-green-700">{stats.displayed}</span>
-			</div>
+		{/if}
+
+		<!-- Sticky Table Header -->
+		<div class="overflow-x-auto bg-gray-50">
+			<table class="min-w-full table-fixed">
+				<thead>
+					<tr>
+						<th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[280px]">
+							Channel
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
+							Subscribers
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
+							Videos
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
+							Views
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
+							Country
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[140px]">
+							Relevance
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[180px]">
+							Email Status
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
+							Actions
+						</th>
+					</tr>
+				</thead>
+			</table>
 		</div>
 	</div>
-{/if}
 
-{#if channels.length > 0}
-	<div class="overflow-x-auto bg-white rounded-lg shadow">
-		<table class="min-w-full divide-y divide-gray-200">
-			<thead class="bg-gray-50">
-				<tr>
-					<th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Channel
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Subscribers
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Videos
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Views
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Country
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Relevance
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Email Status
-					</th>
-					<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-						Actions
-					</th>
-				</tr>
-			</thead>
+	<!-- Scrollable Table Body -->
+	<div class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow" style="max-height: 600px;">
+		<table class="min-w-full divide-y divide-gray-200 table-fixed">
 			<tbody class="bg-white divide-y divide-gray-200">
 				{#each channels as channel (channel.channelId)}
 					<tr class="transition-colors hover:bg-gray-50">
-						<td class="px-4 py-3">
+						<td class="px-4 py-3 w-[280px]">
 							<div class="flex items-center">
 								{#if channel.thumbnailUrl}
 									<img
@@ -199,27 +213,27 @@
 								</div>
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
 							<div class="text-sm text-gray-900">
 								{formatSubscribers(channel.subscriberCount)}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
 							<div class="text-sm text-gray-900">
 								{formatVideos(channel.videoCount)}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
 							<div class="text-sm text-gray-900">
 								{formatViews(channel.viewCount)}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
 							<div class="text-sm text-gray-900">
 								{channel.country || 'Unknown'}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[140px]">
 							<div class="flex items-center">
 								<div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
 									<div
@@ -230,7 +244,7 @@
 								<span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
 							</div>
 						</td>
-						<td class="px-3 py-3">
+						<td class="px-3 py-3 w-[180px]">
 							{#if channel.emails && channel.emails.length > 0}
 								<div class="flex flex-col gap-1">
 									{#each channel.emails as email}
@@ -250,7 +264,7 @@
 								</span>
 							{/if}
 						</td>
-						<td class="px-3 py-3 text-sm font-medium whitespace-nowrap">
+						<td class="px-3 py-3 text-sm font-medium whitespace-nowrap w-[120px]">
 							<a
 								href={channel.url}
 								target="_blank"
