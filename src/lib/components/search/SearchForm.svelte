@@ -15,6 +15,10 @@
   let country = '';
   let englishOnly = false;
 
+  // Streaming progress
+  let searchProgress = 0;
+  let statusMessage = '';
+
   async function handleSearch() {
     // Validate input
     if (!keyword.trim()) {
@@ -34,7 +38,7 @@
       const requestBody: SearchRequest = {
         keyword: keyword.trim(),
         page: 1,
-        pageSize: 15, // Fixed page size for initial load
+        pageSize: totalChannelsLimit, // Request all results at once (user's desired limit)
         limit: totalChannelsLimit, // Total channels to scrape from YouTube
         filters: {
           minSubscribers: minSubscribers || undefined,
@@ -81,13 +85,11 @@
           requestBody.filters
         );
 
-        // If enrichment is queued, start polling for updates
-        // DISABLED: Enrichment polling temporarily disabled
-        // if (enrichmentQueued && channels.length > 0) {
-        // 	const channelIds = channels.map((c) => c.channelId);
-        // 	console.log('[Search] Starting enrichment polling for', channelIds.length, 'channels');
-        // 	startEnrichmentPolling(channelIds);
-        // }
+        // If enrichment is queued, start polling for enriched updates
+        if (enrichmentQueued && pagination?.searchSessionId) {
+          console.log('[Search] Starting enrichment polling for session:', pagination.searchSessionId);
+          startEnrichmentProgressPolling(pagination.searchSessionId, keyword.trim(), requestBody.filters, totalChannelsLimit);
+        }
       } else {
         // This shouldn't happen if the API client is working correctly, but just in case
         throw new Error('Unexpected response format from server');
@@ -109,6 +111,118 @@
 
   let enrichmentPollingInterval: number | null = null;
 
+  /**
+   * Poll for enrichment progress by re-fetching the search session
+   * This fetches updated channel data as enrichment completes in the background
+   */
+  function startEnrichmentProgressPolling(sessionId: string, searchKeyword: string, filters: any, searchLimit: number) {
+    // Clear any existing polling
+    if (enrichmentPollingInterval) {
+      clearInterval(enrichmentPollingInterval);
+    }
+
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('[Enrichment Polling] 🚀 Starting for session:', sessionId);
+    console.log('[Enrichment Polling] ⏱️ Poll interval: 3 seconds');
+    console.log('[Enrichment Polling] 🎯 Target channels:', searchLimit);
+    console.log('═══════════════════════════════════════════════════════════');
+
+    let pollCount = 0;
+    const pollStartTime = Date.now();
+
+    // Poll every 3 seconds for enrichment updates
+    enrichmentPollingInterval = window.setInterval(async () => {
+      try {
+        pollCount++;
+        const elapsedTime = ((Date.now() - pollStartTime) / 1000).toFixed(1);
+
+        console.log(`\n[Enrichment Polling] 🔄 Poll #${pollCount} (${elapsedTime}s elapsed)`);
+
+        // Re-fetch page 1 to get enriched channels
+        const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', {
+          keyword: searchKeyword, // Backend requires keyword even for pagination
+          page: 1,
+          pageSize: searchLimit,
+          limit: searchLimit,
+          searchSessionId: sessionId,
+          filters: filters,
+        });
+
+        console.log(`[Enrichment Polling] 📡 Response status:`, response.status);
+
+        if (response.status === 'success' && response.data) {
+          const { channels, stats, pagination, enrichmentQueued } = response.data as any;
+
+          // Count how many channels are enriched (have subscriber count)
+          const enrichedCount = channels.filter((ch: any) => ch.subscriberCount !== undefined && ch.subscriberCount !== null).length;
+          const enrichmentProgress = ((enrichedCount / channels.length) * 100).toFixed(1);
+
+          console.log(`[Enrichment Polling] 📊 Progress: ${enrichedCount}/${channels.length} channels (${enrichmentProgress}%)`);
+          console.log(`[Enrichment Polling] 📈 Stats:`, {
+            total: stats?.total,
+            filtered: stats?.filtered,
+            displayed: stats?.displayed,
+          });
+          console.log(`[Enrichment Polling] 🔔 Enrichment queued:`, enrichmentQueued);
+
+          // Log sample enriched channel
+          const firstEnriched = channels.find((ch: any) => ch.subscriberCount);
+          if (firstEnriched) {
+            console.log(`[Enrichment Polling] ✅ Sample enriched:`, {
+              name: firstEnriched.name,
+              subs: firstEnriched.subscriberCount?.toLocaleString(),
+              country: firstEnriched.country || 'N/A',
+            });
+          }
+
+          // Update the store with latest enriched data
+          channelsStore.setChannels(
+            channels,
+            stats,
+            pagination,
+            searchLimit,
+            filters
+          );
+
+          // Stop polling if enrichment is complete
+          if (!enrichmentQueued || enrichedCount === channels.length) {
+            const totalTime = ((Date.now() - pollStartTime) / 1000).toFixed(1);
+            console.log('\n═══════════════════════════════════════════════════════════');
+            console.log(`[Enrichment Polling] ✅ COMPLETE! All ${channels.length} channels enriched`);
+            console.log(`[Enrichment Polling] ⏱️ Total time: ${totalTime}s`);
+            console.log(`[Enrichment Polling] 🔄 Total polls: ${pollCount}`);
+            console.log('═══════════════════════════════════════════════════════════\n');
+
+            if (enrichmentPollingInterval) {
+              clearInterval(enrichmentPollingInterval);
+              enrichmentPollingInterval = null;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[Enrichment Polling] ❌ Error:', error);
+        console.log('[Enrichment Polling] 🔄 Continuing polling despite error...');
+        // Don't stop polling on error - server might be temporarily busy
+      }
+    }, 3000); // Poll every 3 seconds
+
+    // Stop polling after 10 minutes (enrichment should complete by then)
+    window.setTimeout(() => {
+      if (enrichmentPollingInterval) {
+        const totalTime = ((Date.now() - pollStartTime) / 1000).toFixed(1);
+        console.log('\n═══════════════════════════════════════════════════════════');
+        console.log(`[Enrichment Polling] ⏰ TIMEOUT reached after ${totalTime}s`);
+        console.log(`[Enrichment Polling] 🔄 Total polls: ${pollCount}`);
+        console.log('[Enrichment Polling] 🛑 Stopping polling');
+        console.log('═══════════════════════════════════════════════════════════\n');
+
+        clearInterval(enrichmentPollingInterval as any);
+        enrichmentPollingInterval = null;
+      }
+    }, 600000); // 10 minutes
+  }
+
+  // Legacy enrichment polling (kept for compatibility)
   function startEnrichmentPolling(channelIds: string[]) {
     // Clear any existing polling
     if (enrichmentPollingInterval) {
@@ -154,75 +268,138 @@
     }, 300000); // 5 minutes
   }
 
-  // Poll a search job until completion or timeout
+  // Poll a search job until completion or timeout (STREAMING VERSION)
   async function pollSearchJob(jobId: string, filters: any, searchLimit: number) {
     const pollInterval = 2000; // 2 seconds
-    const timeoutMs = 2 * 60 * 1000; // 2 minutes
-    let elapsed = 0;
+    const maxPolls = 300; // 10 minutes max
+    let pollCount = 0;
+    let lastChannelCount = 0;
 
-    // Ensure the UI indicates searching
     channelsStore.setSearching(true);
+    channelsStore.setEnriching(true);
 
-    while (elapsed < timeoutMs) {
+    while (pollCount < maxPolls) {
       try {
-        console.log('[Polling] Checking search job', jobId);
-        // Poll the job endpoint using GET (server expects GET for job polling)
-        const res = await apiGet<any>(`/youtube/search/${jobId}`);
+        console.log(`[Streaming] Poll #${pollCount + 1}: Checking job ${jobId}`);
 
-        // If backend returns status field inside data, read it
+        const res = await apiGet<any>(`/youtube/search/${jobId}`);
         const data = res?.data || res;
 
-        if (data?.status === 'processing') {
-          // Still processing - wait and continue
-          console.log('[Polling] Job still processing');
-        } else if (data?.status === 'done' || data?.channels) {
-          // Job completed - server may return final payload directly
-          const channels = data.channels || res.channels || [];
-          const stats = data.stats || res.stats || null;
-          const pagination = data.pagination || res.pagination || null;
+        // Update progress
+        if (data.progress !== undefined) {
+          searchProgress = data.progress;
+          channelsStore.setProgress(data.progress, data.message || statusMessage);
+        }
 
-          console.log('[Polling] Job done, received', channels.length, 'channels');
+        // Update status message
+        if (data.status) {
+          statusMessage = getStatusMessage(data.status, data.stats);
+        }
 
-          // Update store and stop polling
-          channelsStore.setChannels(channels, stats, pagination, searchLimit, filters);
-          channelsStore.setSearching(false);
-          return;
-        } else if (
-          (res as any).status === 'success' &&
-          (res as any).data &&
-          (res as any).data.channels
-        ) {
-          // Some endpoints return {status: 'success', data: {channels...}}
-          const payload = (res as any).data;
+        // Handle streaming updates
+        if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
+          const currentCount = data.channels.length;
+
+          if (currentCount > lastChannelCount) {
+            console.log(
+              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new)`
+            );
+
+            // Update UI with new channels
+            channelsStore.setChannels(
+              data.channels,
+              data.stats,
+              {
+                searchSessionId: data.sessionId,
+                hasMore: !data.isComplete,
+                currentPage: 1,
+                pageSize: searchLimit,
+                totalChannels: currentCount,
+                totalPages: 1
+              },
+              searchLimit,
+              filters
+            );
+
+            lastChannelCount = currentCount;
+          }
+
+          // Keep enriching indicator visible
+          channelsStore.setEnriching(!data.isComplete);
+          channelsStore.setSearching(false); // Hide main search spinner
+        }
+
+        // Handle collecting status
+        if (data.status === 'collecting' || data.status === 'collecting_more') {
+          console.log(`[Streaming] ${data.status}...`);
+          statusMessage = getStatusMessage(data.status, data.stats);
+        }
+
+        // Completed
+        if (data.status === 'completed') {
+          console.log('[Streaming] Search completed!');
+
           channelsStore.setChannels(
-            payload.channels,
-            payload.stats,
-            payload.pagination,
+            data.channels,
+            data.stats,
+            {
+              searchSessionId: data.sessionId,
+              hasMore: false,
+              currentPage: 1,
+              pageSize: searchLimit,
+              totalChannels: data.channels.length,
+              totalPages: 1
+            },
             searchLimit,
             filters
           );
+
           channelsStore.setSearching(false);
+          channelsStore.setEnriching(false);
+          searchProgress = 100;
+          statusMessage = data.stats?.message || 'Search complete!';
+
           return;
-        } else {
-          // Unexpected response format - throw to surface error
-          throw new Error('Unexpected polling response format');
         }
+
+        // Error handling
+        if (data.status === 'failed' || data.error) {
+          throw new Error(data.error || 'Search failed');
+        }
+
       } catch (err) {
-        console.error('[Polling] Error while polling search job:', err);
-        // If network or server error, surface to user and stop polling
+        console.error('[Streaming] Polling error:', err);
         channelsStore.setError(err instanceof Error ? err.message : 'Polling error');
+        channelsStore.setSearching(false);
+        channelsStore.setEnriching(false);
         return;
       }
 
-      // Wait before next poll
+      pollCount++;
       await new Promise((r) => setTimeout(r, pollInterval));
-      elapsed += pollInterval;
     }
 
-    // Timeout reached
-    channelsStore.setError('Search timed out. Please try again later.');
+    // Timeout
+    channelsStore.setError('Search timed out after 10 minutes');
     channelsStore.setSearching(false);
-    console.log('[Polling] Timeout reached for job', jobId);
+    channelsStore.setEnriching(false);
+  }
+
+  function getStatusMessage(status: string, stats: any): string {
+    switch (status) {
+      case 'collecting':
+        return 'Collecting channels from YouTube...';
+      case 'streaming':
+        return stats
+          ? `Found ${stats.passing}/${stats.target} channels, searching for more...`
+          : 'Processing channels...';
+      case 'collecting_more':
+        return 'Collecting additional channels...';
+      case 'completed':
+        return 'Search complete!';
+      default:
+        return 'Processing...';
+    }
   }
 
   function handleReset() {
@@ -266,9 +443,9 @@
         type="number"
         id="totalChannelsLimit"
         bind:value={totalChannelsLimit}
-        min="10"
+        min="5"
         max="100"
-        step="10"
+        step="5"
         class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
       <p class="mt-1 text-sm text-gray-500">
@@ -457,6 +634,28 @@
       </button>
     </div>
   </form>
+
+  <!-- Progress Bar UI -->
+  {#if $channelsStore.isSearching || $channelsStore.isEnriching}
+    <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-blue-700">{statusMessage}</span>
+        <span class="text-sm text-blue-600">{searchProgress}%</span>
+      </div>
+      <div class="w-full bg-blue-200 rounded-full h-2.5">
+        <div
+          class="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
+          style="width: {searchProgress}%"
+        ></div>
+      </div>
+      {#if $channelsStore.stats}
+        <p class="text-xs text-blue-600 mt-2">
+          Enriched {$channelsStore.stats.enriched} channels,
+          {$channelsStore.stats.passing} passed filters
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Error Display -->
   {#if $channelsStore.error}

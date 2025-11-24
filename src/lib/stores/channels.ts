@@ -4,6 +4,7 @@ import type { ChannelSearchResult, SearchStats, Pagination, SearchFilters } from
 export interface SearchState {
 	isSearching: boolean;
 	isLoadingMore: boolean;
+	isEnriching: boolean; // NEW: Shows spinner at bottom of results
 	channels: ChannelSearchResult[];
 	error: string | null;
 	stats: SearchStats | null;
@@ -11,18 +12,23 @@ export interface SearchState {
 	currentKeyword: string | null;
 	searchLimit: number | null;
 	searchFilters: SearchFilters | null;
+	searchProgress: number; // NEW: 0-100 progress
+	statusMessage: string; // NEW: "Found 15/20 channels..."
 }
 
 const initialState: SearchState = {
 	isSearching: false,
 	isLoadingMore: false,
+	isEnriching: false,
 	channels: [],
 	error: null,
 	stats: null,
 	pagination: null,
 	currentKeyword: null,
 	searchLimit: null,
-	searchFilters: null
+	searchFilters: null,
+	searchProgress: 0,
+	statusMessage: ''
 };
 
 function createChannelsStore() {
@@ -124,7 +130,18 @@ function createChannelsStore() {
 				...state,
 				error,
 				isSearching: false,
-				isLoadingMore: false
+				isLoadingMore: false,
+				isEnriching: false
+			}));
+		},
+		setEnriching: (isEnriching: boolean) => {
+			update((state) => ({ ...state, isEnriching }));
+		},
+		setProgress: (progress: number, message: string) => {
+			update((state) => ({
+				...state,
+				searchProgress: progress,
+				statusMessage: message
 			}));
 		},
 		reset: () => {

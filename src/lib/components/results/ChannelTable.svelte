@@ -7,6 +7,7 @@
 	$: stats = $channelsStore.stats;
 	$: pagination = $channelsStore.pagination;
 	$: isLoadingMore = $channelsStore.isLoadingMore;
+	$: isEnriching = $channelsStore.isEnriching;
 	$: currentKeyword = $channelsStore.currentKeyword;
 	$: searchLimit = $channelsStore.searchLimit;
 	$: searchFilters = $channelsStore.searchFilters;
@@ -128,62 +129,76 @@
 	}
 </script>
 
-{#if stats}
-	<div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-		<div class="flex items-center gap-4">
-			<div>
-				<span class="font-semibold">Keyword:</span>
-				<span class="text-blue-700">{stats.keyword}</span>
+{#if channels.length > 0}
+	<!-- Sticky Results Section -->
+	<div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+		<!-- Results Header (becomes sticky) -->
+		{#if stats}
+			<div class="p-4 border-b border-blue-200 bg-blue-50">
+				<div class="flex items-center gap-4">
+					<div>
+						<span class="font-semibold">Search Results</span>
+					</div>
+					<div>
+						<span class="font-semibold">Keyword:</span>
+						<span class="text-blue-700">{stats.keyword}</span>
+					</div>
+					<div>
+						<span class="font-semibold">Found:</span>
+						<span class="text-green-700">{stats.displayed}</span>
+					</div>
+				</div>
 			</div>
-			<div>
-				<span class="font-semibold">Found:</span>
-				<span class="text-green-700">{stats.filtered}</span>
-			</div>
+		{/if}
+
+		<!-- Sticky Table Header -->
+		<div class="overflow-x-auto bg-gray-50">
+			<table class="min-w-full table-fixed">
+				<thead>
+					<tr>
+						<th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[280px]">
+							Channel
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
+							Subscribers
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
+							Videos
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
+							Views
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
+							Country
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[140px]">
+							Relevance
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[180px]">
+							Email Status
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
+							Actions
+						</th>
+					</tr>
+				</thead>
+			</table>
 		</div>
 	</div>
-{/if}
 
-{#if channels.length > 0}
-	<div class="overflow-x-auto bg-white rounded-lg shadow">
-		<table class="min-w-full divide-y divide-gray-200">
-			<thead class="bg-gray-50">
-				<tr>
-					<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Channel
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Subscribers
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Videos
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Views
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Country
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Relevance
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Email Status
-					</th>
-					<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-						Actions
-					</th>
-				</tr>
-			</thead>
+	<!-- Scrollable Table Body -->
+	<div class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow" style="max-height: 600px;">
+		<table class="min-w-full divide-y divide-gray-200 table-fixed">
 			<tbody class="bg-white divide-y divide-gray-200">
 				{#each channels as channel (channel.channelId)}
-					<tr class="hover:bg-gray-50 transition-colors">
-						<td class="px-4 py-3">
+					<tr class="transition-colors hover:bg-gray-50">
+						<td class="px-4 py-3 w-[280px]">
 							<div class="flex items-center">
 								{#if channel.thumbnailUrl}
 									<img
 										src={channel.thumbnailUrl}
 										alt={channel.name}
-										class="h-10 w-10 rounded-full mr-3 flex-shrink-0"
+										class="flex-shrink-0 w-10 h-10 mr-3 rounded-full"
 									/>
 								{/if}
 								<div class="min-w-0">
@@ -198,27 +213,27 @@
 								</div>
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
 							<div class="text-sm text-gray-900">
 								{formatSubscribers(channel.subscriberCount)}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
 							<div class="text-sm text-gray-900">
 								{formatVideos(channel.videoCount)}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
 							<div class="text-sm text-gray-900">
 								{formatViews(channel.viewCount)}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
 							<div class="text-sm text-gray-900">
 								{channel.country || 'Unknown'}
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 whitespace-nowrap w-[140px]">
 							<div class="flex items-center">
 								<div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
 									<div
@@ -229,27 +244,32 @@
 								<span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
 							</div>
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap">
+						<td class="px-3 py-3 w-[180px]">
 							{#if channel.emails && channel.emails.length > 0}
-								<span
-									class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800"
-								>
-									{channel.emails.length} found
-								</span>
+								<div class="flex flex-col gap-1">
+									{#each channel.emails as email}
+										<span
+											class="inline-flex px-2 text-xs font-semibold leading-5 text-green-800 bg-green-100 rounded"
+											title={email}
+										>
+											{email}
+										</span>
+									{/each}
+								</div>
 							{:else}
 								<span
-									class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800"
+									class="inline-flex px-2 text-xs font-semibold leading-5 text-gray-800 bg-gray-100 rounded-full"
 								>
 									Not found
 								</span>
 							{/if}
 						</td>
-						<td class="px-3 py-3 whitespace-nowrap text-sm font-medium">
+						<td class="px-3 py-3 text-sm font-medium whitespace-nowrap w-[120px]">
 							<a
 								href={channel.url}
 								target="_blank"
 								rel="noopener noreferrer"
-								class="text-blue-600 hover:text-blue-900 mr-2"
+								class="mr-2 text-blue-600 hover:text-blue-900"
 							>
 								Visit
 							</a>
@@ -262,26 +282,65 @@
 						</td>
 					</tr>
 				{/each}
+
+				<!-- Streaming Indicator -->
+				{#if isEnriching}
+					<tr>
+						<td colspan="8" class="px-4 py-6 bg-blue-50">
+							<div class="flex flex-col items-center gap-3">
+								<svg
+									class="w-8 h-8 text-blue-600 animate-spin"
+									viewBox="0 0 24 24"
+								>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+										fill="none"
+									/>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									/>
+								</svg>
+								<div class="text-center">
+									<p class="text-sm font-medium text-blue-700">
+										Enriching more channels...
+									</p>
+									{#if stats}
+										<p class="text-xs text-blue-600 mt-1">
+											{stats.passing}/{stats.target} channels found
+											• {stats.enriched} processed
+										</p>
+									{/if}
+								</div>
+							</div>
+						</td>
+					</tr>
+				{/if}
 			</tbody>
 		</table>
 	</div>
 
-	<div class="mt-4 flex flex-col items-center gap-3">
-		<div class="text-sm text-gray-500 text-center">
+	<div class="flex flex-col items-center gap-3 mt-4">
+		<div class="text-sm text-center text-gray-500">
 			Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
 			{#if stats && stats.keyword}
 				for "{stats.keyword}"
 			{/if}
-			{#if pagination && pagination.totalChannels > channels.length}
-				out of {pagination.totalChannels} found
-			{/if}
+			
 		</div>
 
-		{#if pagination && (pagination.hasMore || pagination.currentPage < pagination.totalPages || (searchLimit && channels.length < searchLimit))}
+		<!-- Load More Button - Temporarily Commented Out -->
+		<!-- {#if pagination && (pagination.hasMore || pagination.currentPage < pagination.totalPages || (searchLimit && channels.length < searchLimit))}
 			<button
 				on:click={handleLoadMore}
 				disabled={isLoadingMore}
-				class="px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+				class="flex items-center gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
 			>
 				{#if isLoadingMore}
 					<svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
@@ -313,12 +372,12 @@
 					{searchLimit - channels.length} more channel{searchLimit - channels.length !== 1 ? 's' : ''} available (limit: {searchLimit})
 				</p>
 			{/if}
-		{/if}
+		{/if} -->
 	</div>
 {:else}
-	<div class="text-center py-12 bg-gray-50 rounded-lg">
+	<div class="py-12 text-center rounded-lg bg-gray-50">
 		<svg
-			class="mx-auto h-12 w-12 text-gray-400"
+			class="w-12 h-12 mx-auto text-gray-400"
 			fill="none"
 			viewBox="0 0 24 24"
 			stroke="currentColor"
@@ -340,7 +399,7 @@
 <!-- Email & Contact Details Modal -->
 {#if showEmailModal && selectedChannel}
 	<div
-		class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-gray-500 bg-opacity-75"
 		on:click={closeModal}
 		on:keydown={(e) => e.key === 'Escape' && closeModal()}
 		role="button"
@@ -354,13 +413,13 @@
 			tabindex="-1"
 		>
 			<!-- Modal Header -->
-			<div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+			<div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
 				<div class="flex items-center">
 					{#if selectedChannel.thumbnailUrl}
 						<img
 							src={selectedChannel.thumbnailUrl}
 							alt={selectedChannel.name}
-							class="h-12 w-12 rounded-full mr-3"
+							class="w-12 h-12 mr-3 rounded-full"
 						/>
 					{/if}
 					<div>
@@ -373,7 +432,7 @@
 					class="text-gray-400 hover:text-gray-500"
 					aria-label="Close"
 				>
-					<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 						<path
 							stroke-linecap="round"
 							stroke-linejoin="round"
@@ -387,32 +446,32 @@
 			<!-- Modal Body -->
 			<div class="px-6 py-4">
 				<!-- Channel Stats -->
-				<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-					<div class="bg-blue-50 p-3 rounded-lg">
+				<div class="grid grid-cols-2 gap-4 mb-6 md:grid-cols-3 lg:grid-cols-5">
+					<div class="p-3 rounded-lg bg-blue-50">
 						<div class="text-sm text-gray-600">Subscribers</div>
 						<div class="text-lg font-semibold text-blue-700">
 							{formatSubscribers(selectedChannel.subscriberCount)}
 						</div>
 					</div>
-					<div class="bg-green-50 p-3 rounded-lg">
+					<div class="p-3 rounded-lg bg-green-50">
 						<div class="text-sm text-gray-600">Videos</div>
 						<div class="text-lg font-semibold text-green-700">
 							{formatVideos(selectedChannel.videoCount)}
 						</div>
 					</div>
-					<div class="bg-orange-50 p-3 rounded-lg">
+					<div class="p-3 rounded-lg bg-orange-50">
 						<div class="text-sm text-gray-600">Views</div>
 						<div class="text-lg font-semibold text-orange-700">
 							{formatViews(selectedChannel.viewCount)}
 						</div>
 					</div>
-					<div class="bg-indigo-50 p-3 rounded-lg">
+					<div class="p-3 rounded-lg bg-indigo-50">
 						<div class="text-sm text-gray-600">Country</div>
 						<div class="text-lg font-semibold text-indigo-700">
 							{selectedChannel.country || 'Unknown'}
 						</div>
 					</div>
-					<div class="bg-purple-50 p-3 rounded-lg">
+					<div class="p-3 rounded-lg bg-purple-50">
 						<div class="text-sm text-gray-600">Relevance</div>
 						<div class="text-lg font-semibold text-purple-700">
 							{formatRelevance(selectedChannel.relevanceScore)}
@@ -422,9 +481,9 @@
 
 				<!-- Email Addresses -->
 				<div class="mb-6">
-					<h4 class="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+					<h4 class="flex items-center mb-2 text-sm font-semibold text-gray-700">
 						<svg
-							class="h-5 w-5 mr-2 text-green-600"
+							class="w-5 h-5 mr-2 text-green-600"
 							fill="none"
 							viewBox="0 0 24 24"
 							stroke="currentColor"
@@ -441,12 +500,12 @@
 					{#if selectedChannel.emails && selectedChannel.emails.length > 0}
 						<div class="space-y-2">
 							{#each selectedChannel.emails as email}
-								<div class="bg-gray-50 p-3 rounded-lg">
+								<div class="p-3 rounded-lg bg-gray-50">
 									<div class="flex items-center justify-between">
-										<span class="text-sm font-mono text-gray-900">{email}</span>
+										<span class="font-mono text-sm text-gray-900">{email}</span>
 										<button
 											on:click={() => navigator.clipboard.writeText(email)}
-											class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50"
+											class="px-2 py-1 text-xs text-blue-600 rounded hover:text-blue-800 hover:bg-blue-50"
 											title="Copy to clipboard"
 										>
 											Copy
@@ -463,7 +522,7 @@
 							{/each}
 						</div>
 					{:else}
-						<p class="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+						<p class="p-3 text-sm text-gray-500 rounded-lg bg-gray-50">
 							No email addresses found for this channel.
 						</p>
 					{/if}
@@ -471,9 +530,9 @@
 
 				<!-- Social Links -->
 				<div class="mb-6">
-					<h4 class="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+					<h4 class="flex items-center mb-2 text-sm font-semibold text-gray-700">
 						<svg
-							class="h-5 w-5 mr-2 text-blue-600"
+							class="w-5 h-5 mr-2 text-blue-600"
 							fill="none"
 							viewBox="0 0 24 24"
 							stroke="currentColor"
@@ -490,16 +549,16 @@
 					{#if selectedChannel.socialLinks && Object.keys(selectedChannel.socialLinks).length > 0}
 						<div class="space-y-2">
 							{#each Object.entries(selectedChannel.socialLinks) as [platform, url]}
-								<div class="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+								<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50">
 									<div class="flex items-center">
-										<span class="text-sm font-semibold text-gray-700 capitalize w-24"
+										<span class="w-24 text-sm font-semibold text-gray-700 capitalize"
 											>{platform}:</span
 										>
 										<a
 											href={url}
 											target="_blank"
 											rel="noopener noreferrer"
-											class="text-sm text-blue-600 hover:text-blue-800 truncate max-w-md"
+											class="max-w-md text-sm text-blue-600 truncate hover:text-blue-800"
 										>
 											{url}
 										</a>
@@ -508,7 +567,7 @@
 										href={url}
 										target="_blank"
 										rel="noopener noreferrer"
-										class="text-blue-600 hover:text-blue-800 text-xs"
+										class="text-xs text-blue-600 hover:text-blue-800"
 									>
 										Visit
 									</a>
@@ -516,7 +575,7 @@
 							{/each}
 						</div>
 					{:else}
-						<p class="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+						<p class="p-3 text-sm text-gray-500 rounded-lg bg-gray-50">
 							No social media links found for this channel.
 						</p>
 					{/if}
@@ -525,8 +584,8 @@
 				<!-- Description -->
 				{#if selectedChannel.description}
 					<div class="mb-4">
-						<h4 class="text-sm font-semibold text-gray-700 mb-2">Description</h4>
-						<p class="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+						<h4 class="mb-2 text-sm font-semibold text-gray-700">Description</h4>
+						<p class="p-3 text-sm text-gray-600 rounded-lg bg-gray-50">
 							{selectedChannel.description}
 						</p>
 					</div>
@@ -534,18 +593,18 @@
 			</div>
 
 			<!-- Modal Footer -->
-			<div class="px-6 py-4 border-t border-gray-200 flex justify-between">
+			<div class="flex justify-between px-6 py-4 border-t border-gray-200">
 				<a
 					href={selectedChannel.url}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+					class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
 				>
 					Visit YouTube Channel
 				</a>
 				<button
 					on:click={closeModal}
-					class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+					class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
 				>
 					Close
 				</button>
