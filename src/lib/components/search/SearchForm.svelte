@@ -444,7 +444,7 @@
         id="totalChannelsLimit"
         bind:value={totalChannelsLimit}
         min="5"
-        max="100"
+        max="200"
         step="5"
         class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
@@ -637,7 +637,7 @@
 
   <!-- Progress Bar UI -->
   {#if $channelsStore.isSearching || $channelsStore.isEnriching}
-    <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+    <div class="p-4 mt-4 border border-blue-200 rounded-lg bg-blue-50">
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm font-medium text-blue-700">{statusMessage}</span>
         <span class="text-sm text-blue-600">{searchProgress}%</span>
@@ -649,7 +649,7 @@
         ></div>
       </div>
       {#if $channelsStore.stats}
-        <p class="text-xs text-blue-600 mt-2">
+        <p class="mt-2 text-xs text-blue-600">
           Enriched {$channelsStore.stats.enriched} channels,
           {$channelsStore.stats.passing} passed filters
         </p>
