@@ -640,7 +640,7 @@
     <div class="p-4 mt-4 border border-blue-200 rounded-lg bg-blue-50">
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm font-medium text-blue-700">{statusMessage}</span>
-        <span class="text-sm text-blue-600">{searchProgress}%</span>
+        <span class="text-sm text-blue-600">{Math.round(searchProgress)}%</span>
       </div>
       <div class="w-full bg-blue-200 rounded-full h-2.5">
         <div
