@@ -1,5 +1,12 @@
 // API Response types matching the backend DTOs
 
+export interface VideoInfo {
+  title: string;
+  views: number;
+  uploadDate: string;
+  uploadedAgo: string;
+}
+
 export interface SocialLinks {
   instagram?: string;
   twitter?: string;
@@ -26,6 +33,9 @@ export interface ChannelSearchResult {
   emails?: string[];
   email_sources?: Record<string, string>; // Map of email to source
   socialLinks?: SocialLinks;
+  latestVideos?: VideoInfo[]; // Latest 3 videos from the channel
+  lastPostedVideoDate?: string; // Date of most recent video (YYYY-MM-DD)
+  avgRecentViews?: number; // Average views of 3 most recent videos
 }
 
 export interface SearchStats {

@@ -105,6 +105,58 @@
 		return `${Math.round(score)}%`;
 	}
 
+	function formatDate(dateStr: string | undefined): string {
+		if (!dateStr) return 'Unknown';
+		try {
+			const date = new Date(dateStr);
+			const now = new Date();
+			const diffTime = Math.abs(now.getTime() - date.getTime());
+			const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+			if (diffDays === 0) return 'Today';
+			if (diffDays === 1) return '1 day ago';
+			if (diffDays < 7) return `${diffDays} days ago`;
+			if (diffDays < 30) {
+				const weeks = Math.floor(diffDays / 7);
+				return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+			}
+			if (diffDays < 365) {
+				const months = Math.floor(diffDays / 30);
+				return months === 1 ? '1 month ago' : `${months} months ago`;
+			}
+			const years = Math.floor(diffDays / 365);
+			return years === 1 ? '1 year ago' : `${years} years ago`;
+		} catch {
+			return dateStr;
+		}
+	}
+
+	function formatAvgViews(views: number | undefined): string {
+		if (!views) return 'Unknown';
+		// Reuse the same formatting logic as formatViews
+		if (views >= 1000000000) {
+			const value = views / 1000000000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}B`;
+		}
+		if (views >= 1000000) {
+			const value = views / 1000000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}M`;
+		}
+		if (views >= 1000) {
+			const value = views / 1000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}K`;
+		}
+		return views.toLocaleString();
+	}
+
+	function getVideoCountText(count: number): string {
+		if (count === 1) return '1 video';
+		return `${count} videos`;
+	}
+
 	function getEmailStatus(channel: ChannelSearchResult): { text: string; class: string } {
 		if (channel.emails && channel.emails.length > 0) {
 			return {
@@ -168,6 +220,12 @@
 						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
 							Views
 						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[130px]">
+							Last Posted
+						</th>
+						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]" title="Average views of recent videos">
+							Avg Views
+						</th>
 						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
 							Country
 						</th>
@@ -227,6 +285,31 @@
 							<div class="text-sm text-gray-900">
 								{formatViews(channel.viewCount)}
 							</div>
+						</td>
+						<td class="px-3 py-3 whitespace-nowrap w-[130px]">
+							<div class="text-sm text-gray-900">
+								{formatDate(channel.lastPostedVideoDate)}
+							</div>
+						</td>
+						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
+							{#if channel.avgRecentViews && channel.latestVideos && channel.latestVideos.length > 0}
+								<div class="flex items-center gap-1.5">
+									<span class="text-sm font-medium text-gray-900">
+										{formatAvgViews(channel.avgRecentViews)}
+									</span>
+									<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800" title="Average of {getVideoCountText(channel.latestVideos.length)}">
+										{channel.latestVideos.length}
+									</span>
+								</div>
+							{:else if channel.avgRecentViews}
+								<div class="text-sm text-gray-900">
+									{formatAvgViews(channel.avgRecentViews)}
+								</div>
+							{:else}
+								<div class="text-sm text-gray-500">
+									Unknown
+								</div>
+							{/if}
 						</td>
 						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
 							<div class="text-sm text-gray-900">
