@@ -37,7 +37,14 @@ function createChannelsStore() {
 	return {
 		subscribe,
 		setSearching: (isSearching: boolean) => {
-			update((state) => ({ ...state, isSearching, error: null }));
+			update((state) => ({
+				...state,
+				isSearching,
+				error: null,
+				// Reset progress when starting a new search
+				searchProgress: isSearching ? 0 : state.searchProgress,
+				statusMessage: isSearching ? '' : state.statusMessage
+			}));
 		},
 		setChannels: (
 			channels: ChannelSearchResult[],

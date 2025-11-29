@@ -19,6 +19,9 @@
   let searchProgress = 0;
   let statusMessage = '';
 
+  // Track active job to cancel previous searches
+  let activeJobId: string | null = null;
+
   async function handleSearch() {
     // Validate input
     if (!keyword.trim()) {
@@ -28,6 +31,21 @@
 
     // Auto-close advanced filters for better UX
     showAdvanced = false;
+
+    // Cancel any previous search by clearing activeJobId
+    // This will cause the previous polling loop to exit
+    activeJobId = null;
+
+    // Clear any existing enrichment polling
+    if (enrichmentPollingInterval) {
+      console.log('[Search] Clearing previous enrichment polling');
+      clearInterval(enrichmentPollingInterval);
+      enrichmentPollingInterval = null;
+    }
+
+    // Reset progress before starting new search
+    searchProgress = 0;
+    statusMessage = '';
 
     // Reset error state and set searching state
     channelsStore.setSearching(true);
@@ -62,6 +80,10 @@
         if ((response.data as any).jobId) {
           const jobId = (response.data as any).jobId as string;
           console.log('[Search] Received jobId:', jobId, 'starting polling');
+
+          // Set this job as the active one
+          activeJobId = jobId;
+
           await pollSearchJob(jobId, requestBody.filters, totalChannelsLimit);
           return;
         }
@@ -279,11 +301,23 @@
     channelsStore.setEnriching(true);
 
     while (pollCount < maxPolls) {
+      // Check if this job is still the active one
+      if (activeJobId !== jobId) {
+        console.log(`[Streaming] Job ${jobId} canceled - new search started`);
+        return; // Exit this polling loop
+      }
+
       try {
         console.log(`[Streaming] Poll #${pollCount + 1}: Checking job ${jobId}`);
 
         const res = await apiGet<any>(`/youtube/search/${jobId}`);
         const data = res?.data || res;
+
+        // Double-check job is still active before updating UI
+        if (activeJobId !== jobId) {
+          console.log(`[Streaming] Job ${jobId} canceled during update - aborting`);
+          return;
+        }
 
         // Update progress
         if (data.progress !== undefined) {
