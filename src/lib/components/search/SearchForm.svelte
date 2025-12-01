@@ -2,6 +2,7 @@
   import { channelsStore } from '$lib/stores/channels';
   import { apiPost, apiGet } from '$lib/api/client';
   import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
+  import { onMount, onDestroy } from 'svelte';
 
   let keyword = '';
   let totalChannelsLimit = 50; // Total channels user wants to find
@@ -22,6 +23,85 @@
   // Track active job to cancel previous searches
   let activeJobId: string | null = null;
 
+  // Get API URL from environment or use default
+  const API_URL = import.meta.env.VITE_PUBLIC_API_URL || 'http://localhost:8090';
+
+  // LocalStorage key for tracking active jobs
+  const ACTIVE_JOB_KEY = 'youtube-lead-gen-active-job';
+
+  // Function to cancel job via regular API call
+  async function cancelJobViaApi(jobId: string) {
+    try {
+      console.log(`[Cleanup] Canceling orphaned job ${jobId} via API`);
+      await apiPost('/youtube/search/cancel', { jobId });
+      console.log(`[Cleanup] Successfully canceled orphaned job ${jobId}`);
+    } catch (error) {
+      console.warn('[Cleanup] Failed to cancel orphaned job:', error);
+    }
+  }
+
+  // Setup beforeunload listener when component mounts
+  onMount(async () => {
+    // Check if there's a job from a previous session (page was refreshed/closed)
+    const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (savedJobId) {
+      console.log(`[Mount] Found orphaned job from previous session: ${savedJobId}`);
+      // Cancel the orphaned job using regular API call (not beacon)
+      await cancelJobViaApi(savedJobId);
+      localStorage.removeItem(ACTIVE_JOB_KEY);
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (activeJobId) {
+        // Show browser confirmation dialog
+        const message = 'A search is currently in progress. Are you sure you want to leave? The search will be stopped.';
+        event.preventDefault();
+        event.returnValue = message; // Modern browsers ignore custom message but still show dialog
+
+        console.log(`[BeforeUnload] Active search detected, showing confirmation dialog`);
+
+        // DON'T cancel the job here - we can't tell if user chose "Leave" or "Stay"
+        // Instead, save to localStorage. If they leave, we'll cancel on next mount.
+        // If they stay, we'll clear it when search completes.
+        localStorage.setItem(ACTIVE_JOB_KEY, activeJobId);
+
+        return message; // For some browsers
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // If user chose "Stay" in the dialog, clear the localStorage flag
+    // This runs when the page regains focus after the dialog is dismissed
+    const handleVisibilityChange = () => {
+      if (!document.hidden && activeJobId) {
+        const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
+        if (savedJobId === activeJobId) {
+          // User stayed on page, clear the flag
+          console.log(`[Visibility] User stayed on page, clearing localStorage flag`);
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cleanup listeners on unmount
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  });
+
+  // onDestroy - no need to cancel here, localStorage approach handles it
+  onDestroy(() => {
+    // The beforeunload event already saved to localStorage if needed
+    // If page actually closes/refreshes, onMount will handle cleanup
+    if (activeJobId) {
+      console.log(`[Cleanup] Component destroyed with active job ${activeJobId}`);
+    }
+  });
+
   async function handleSearch() {
     // Validate input
     if (!keyword.trim()) {
@@ -31,6 +111,28 @@
 
     // Auto-close advanced filters for better UX
     showAdvanced = false;
+
+    // If there's an active search, show confirmation dialog
+    if (activeJobId) {
+      const confirmed = confirm(
+        'A search is currently in progress. Starting a new search will stop the current one. Do you want to continue?'
+      );
+
+      if (!confirmed) {
+        console.log('[Search] User canceled new search - keeping current search running');
+        return; // User clicked "Cancel", don't start new search
+      }
+
+      // User confirmed, cancel previous search job on the backend
+      try {
+        console.log(`[Search] User confirmed, canceling previous job ${activeJobId} on backend`);
+        await apiPost('/youtube/search/cancel', { jobId: activeJobId });
+        console.log(`[Search] Successfully canceled job ${activeJobId} on backend`);
+      } catch (error) {
+        console.warn('[Search] Failed to cancel previous job on backend:', error);
+        // Continue anyway - frontend cancellation still works
+      }
+    }
 
     // Cancel any previous search by clearing activeJobId
     // This will cause the previous polling loop to exit
@@ -83,6 +185,8 @@
 
           // Set this job as the active one
           activeJobId = jobId;
+          // Save to localStorage so we can cancel it if page is refreshed/closed
+          localStorage.setItem(ACTIVE_JOB_KEY, jobId);
 
           await pollSearchJob(jobId, requestBody.filters, totalChannelsLimit);
           return;
@@ -393,6 +497,10 @@
           searchProgress = 100;
           statusMessage = data.stats?.message || 'Search complete!';
 
+          // Clear active job and localStorage since job completed successfully
+          activeJobId = null;
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+
           return;
         }
 
@@ -436,7 +544,41 @@
     }
   }
 
-  function handleReset() {
+  async function handleReset() {
+    // If there's an active search, show confirmation dialog
+    if (activeJobId) {
+      const confirmed = confirm(
+        'A search is currently in progress. Are you sure you want to stop it and reset all data?'
+      );
+
+      if (!confirmed) {
+        console.log('[Reset] User canceled reset operation');
+        return; // User clicked "Cancel", don't reset
+      }
+
+      // User confirmed, cancel the job on backend
+      try {
+        console.log(`[Reset] User confirmed, canceling active job ${activeJobId} on backend`);
+        await apiPost('/youtube/search/cancel', { jobId: activeJobId });
+        console.log(`[Reset] Successfully canceled job ${activeJobId}`);
+      } catch (error) {
+        console.warn('[Reset] Failed to cancel job on backend:', error);
+      }
+    }
+
+    // Clear active job ID
+    activeJobId = null;
+    // Clear from localStorage
+    localStorage.removeItem(ACTIVE_JOB_KEY);
+
+    // Clear any existing enrichment polling
+    if (enrichmentPollingInterval) {
+      console.log('[Reset] Clearing enrichment polling');
+      clearInterval(enrichmentPollingInterval);
+      enrichmentPollingInterval = null;
+    }
+
+    // Reset form fields
     keyword = '';
     totalChannelsLimit = 50;
     minSubscribers = undefined;
@@ -444,6 +586,12 @@
     minAvgViews = undefined;
     maxAvgViews = undefined;
     country = '';
+
+    // Reset progress
+    searchProgress = 0;
+    statusMessage = '';
+
+    // Reset store
     channelsStore.reset();
   }
 </script>

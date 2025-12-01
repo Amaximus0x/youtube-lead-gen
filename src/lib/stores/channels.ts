@@ -41,9 +41,10 @@ function createChannelsStore() {
 				...state,
 				isSearching,
 				error: null,
-				// Reset progress when starting a new search
+				// Reset progress and stats when starting a new search
 				searchProgress: isSearching ? 0 : state.searchProgress,
-				statusMessage: isSearching ? '' : state.statusMessage
+				statusMessage: isSearching ? '' : state.statusMessage,
+				stats: isSearching ? null : state.stats // Clear old stats when starting new search
 			}));
 		},
 		setChannels: (
