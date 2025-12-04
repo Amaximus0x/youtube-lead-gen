@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelsStore } from '$lib/stores/channels';
+  import { toastStore } from '$lib/stores/toast';
   import { apiPost, apiGet } from '$lib/api/client';
   import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
   import { onMount, onDestroy } from 'svelte';
@@ -227,6 +228,33 @@
       const errorMessage =
         error instanceof Error ? error.message : 'An unexpected error occurred while searching';
 
+      // Show user-friendly toast notification
+      if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
+        toastStore.show(
+          'Network error: Unable to reach YouTube. Please check your internet connection.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
+        toastStore.show(
+          'No internet connection. Please connect to the internet and try again.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('Failed to fetch')) {
+        toastStore.show(
+          'Failed to connect to server. Please ensure the backend is running.',
+          'error',
+          8000
+        );
+      } else {
+        toastStore.show(
+          `Search failed: ${errorMessage}`,
+          'error',
+          7000
+        );
+      }
+
       channelsStore.setError(errorMessage);
     } finally {
       // Always reset searching state, even if there's an error
@@ -438,12 +466,34 @@
         if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
           const currentCount = data.channels.length;
 
-          if (currentCount > lastChannelCount) {
+          // Check if backend sent incremental new channels
+          if (data.newChannels && Array.isArray(data.newChannels) && data.newChannels.length > 0) {
             console.log(
-              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new)`
+              `[Streaming] Received ${data.newChannels.length} NEW channels (total: ${currentCount})`
             );
 
-            // Update UI with new channels
+            // APPEND only new channels (incremental update)
+            channelsStore.appendChannels(
+              data.newChannels,
+              data.stats,
+              {
+                searchSessionId: data.sessionId,
+                hasMore: !data.isComplete,
+                currentPage: 1,
+                pageSize: searchLimit,
+                totalChannels: currentCount,
+                totalPages: 1
+              }
+            );
+
+            lastChannelCount = currentCount;
+          } else if (currentCount > lastChannelCount) {
+            // Fallback: if no newChannels field, use old logic (replace all)
+            console.log(
+              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new) - using full update`
+            );
+
+            // Update UI with all channels (old behavior)
             channelsStore.setChannels(
               data.channels,
               data.stats,
@@ -511,7 +561,36 @@
 
       } catch (err) {
         console.error('[Streaming] Polling error:', err);
-        channelsStore.setError(err instanceof Error ? err.message : 'Polling error');
+        const errorMessage = err instanceof Error ? err.message : 'Polling error';
+
+        // Show user-friendly toast notification
+        if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
+          toastStore.show(
+            'Network error: Please check your internet connection and try again.',
+            'error',
+            8000
+          );
+        } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
+          toastStore.show(
+            'No internet connection. Please connect to the internet and try again.',
+            'error',
+            8000
+          );
+        } else if (errorMessage.includes('timeout')) {
+          toastStore.show(
+            'Request timed out. Please try again.',
+            'error',
+            7000
+          );
+        } else {
+          toastStore.show(
+            `Search error: ${errorMessage}`,
+            'error',
+            7000
+          );
+        }
+
+        channelsStore.setError(errorMessage);
         channelsStore.setSearching(false);
         channelsStore.setEnriching(false);
         return;
