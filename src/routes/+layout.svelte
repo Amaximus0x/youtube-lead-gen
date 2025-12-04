@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import Toast from '$lib/components/ui/Toast.svelte';
 
 	let { children } = $props();
 </script>
@@ -26,4 +27,7 @@
 	<main class="container py-8 mx-auto">
 		{@render children?.()}
 	</main>
+
+	<!-- Global Toast Notifications -->
+	<Toast />
 </div>

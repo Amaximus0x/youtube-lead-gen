@@ -94,9 +94,19 @@ function createChannelsStore() {
 			}
 
 			update((state) => {
+				// Create a set of existing channel IDs for duplicate prevention
+				const existingIds = new Set(state.channels.map(ch => ch.channelId));
+
+				// Filter out any duplicates (just in case)
+				const uniqueNewChannels = channels.filter(ch => !existingIds.has(ch.channelId));
+
+				if (uniqueNewChannels.length < channels.length) {
+					console.log('[Store] Filtered out', channels.length - uniqueNewChannels.length, 'duplicate channels');
+				}
+
 				const newState = {
 					...state,
-					channels: [...state.channels, ...channels],
+					channels: [...state.channels, ...uniqueNewChannels],
 					stats,
 					pagination: fixedPagination,
 					isLoadingMore: false,

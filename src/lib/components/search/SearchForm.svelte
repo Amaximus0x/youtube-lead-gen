@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelsStore } from '$lib/stores/channels';
+  import { toastStore } from '$lib/stores/toast';
   import { apiPost, apiGet } from '$lib/api/client';
   import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
   import { onMount, onDestroy } from 'svelte';
@@ -227,6 +228,33 @@
       const errorMessage =
         error instanceof Error ? error.message : 'An unexpected error occurred while searching';
 
+      // Show user-friendly toast notification
+      if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
+        toastStore.show(
+          'Network error: Unable to reach YouTube. Please check your internet connection.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
+        toastStore.show(
+          'No internet connection. Please connect to the internet and try again.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('Failed to fetch')) {
+        toastStore.show(
+          'Failed to connect to server. Please ensure the backend is running.',
+          'error',
+          8000
+        );
+      } else {
+        toastStore.show(
+          `Search failed: ${errorMessage}`,
+          'error',
+          7000
+        );
+      }
+
       channelsStore.setError(errorMessage);
     } finally {
       // Always reset searching state, even if there's an error
@@ -438,12 +466,34 @@
         if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
           const currentCount = data.channels.length;
 
-          if (currentCount > lastChannelCount) {
+          // Check if backend sent incremental new channels
+          if (data.newChannels && Array.isArray(data.newChannels) && data.newChannels.length > 0) {
             console.log(
-              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new)`
+              `[Streaming] Received ${data.newChannels.length} NEW channels (total: ${currentCount})`
             );
 
-            // Update UI with new channels
+            // APPEND only new channels (incremental update)
+            channelsStore.appendChannels(
+              data.newChannels,
+              data.stats,
+              {
+                searchSessionId: data.sessionId,
+                hasMore: !data.isComplete,
+                currentPage: 1,
+                pageSize: searchLimit,
+                totalChannels: currentCount,
+                totalPages: 1
+              }
+            );
+
+            lastChannelCount = currentCount;
+          } else if (currentCount > lastChannelCount) {
+            // Fallback: if no newChannels field, use old logic (replace all)
+            console.log(
+              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new) - using full update`
+            );
+
+            // Update UI with all channels (old behavior)
             channelsStore.setChannels(
               data.channels,
               data.stats,
@@ -511,7 +561,36 @@
 
       } catch (err) {
         console.error('[Streaming] Polling error:', err);
-        channelsStore.setError(err instanceof Error ? err.message : 'Polling error');
+        const errorMessage = err instanceof Error ? err.message : 'Polling error';
+
+        // Show user-friendly toast notification
+        if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
+          toastStore.show(
+            'Network error: Please check your internet connection and try again.',
+            'error',
+            8000
+          );
+        } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
+          toastStore.show(
+            'No internet connection. Please connect to the internet and try again.',
+            'error',
+            8000
+          );
+        } else if (errorMessage.includes('timeout')) {
+          toastStore.show(
+            'Request timed out. Please try again.',
+            'error',
+            7000
+          );
+        } else {
+          toastStore.show(
+            `Search error: ${errorMessage}`,
+            'error',
+            7000
+          );
+        }
+
+        channelsStore.setError(errorMessage);
         channelsStore.setSearching(false);
         channelsStore.setEnriching(false);
         return;
@@ -593,6 +672,42 @@
 
     // Reset store
     channelsStore.reset();
+  }
+
+  // Stop search - keeps results and form data, just stops backend processing
+  async function handleStopSearch() {
+    if (!activeJobId) {
+      console.log('[Stop] No active search to stop');
+      return;
+    }
+
+    try {
+      console.log(`[Stop] Stopping search for job ${activeJobId}`);
+      await apiPost('/youtube/search/cancel', { jobId: activeJobId });
+      console.log(`[Stop] Successfully stopped job ${activeJobId}`);
+    } catch (error) {
+      console.warn('[Stop] Failed to stop job on backend:', error);
+    }
+
+    // Clear active job ID and localStorage
+    activeJobId = null;
+    localStorage.removeItem(ACTIVE_JOB_KEY);
+
+    // Clear any existing enrichment polling
+    if (enrichmentPollingInterval) {
+      console.log('[Stop] Clearing enrichment polling');
+      clearInterval(enrichmentPollingInterval);
+      enrichmentPollingInterval = null;
+    }
+
+    // Stop the searching/enriching state but KEEP all results and form data
+    channelsStore.setSearching(false);
+    channelsStore.setEnriching(false);
+
+    // Update status message to indicate search was stopped
+    statusMessage = 'Search stopped by user';
+
+    console.log('[Stop] Search stopped - results and form data preserved');
   }
 </script>
 
@@ -771,30 +886,35 @@
 
     <!-- Action Buttons -->
     <div class="flex gap-3 pt-4">
-      <button
-        type="submit"
-        disabled={$channelsStore.isSearching}
-        class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-      >
-        {#if $channelsStore.isSearching}
-          <svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
-            <circle
-              class="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-              fill="none"
+      {#if $channelsStore.isSearching || $channelsStore.isEnriching}
+        <!-- Stop Search Button (shown when search is active) -->
+        <button
+          type="button"
+          on:click={handleStopSearch}
+          class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-red-600 rounded-md hover:bg-red-700"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
             <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 10h6v4H9z"
             />
           </svg>
-          Searching...
-        {:else}
+          Stop Search
+        </button>
+      {:else}
+        <!-- Search Button (shown when not searching) -->
+        <button
+          type="submit"
+          class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700"
+        >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
@@ -804,8 +924,8 @@
             />
           </svg>
           Search Channels
-        {/if}
-      </button>
+        </button>
+      {/if}
 
       <button
         type="button"
