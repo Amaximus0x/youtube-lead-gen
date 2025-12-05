@@ -16,6 +16,9 @@
   let maxAvgViews: number | undefined = undefined;
   let country = '';
   let englishOnly = false;
+  let uploadDateRange: 'today' | 'this_week' | 'this_month' | '1_6_months' | 'this_year' | '' = '';
+  let minRecentAvgViews: number | undefined = undefined;
+  let maxRecentAvgViews: number | undefined = undefined;
 
   // Streaming progress
   let searchProgress = 0;
@@ -168,6 +171,9 @@
           maxAvgViews: maxAvgViews || undefined,
           country: country || undefined,
           englishOnly: englishOnly ? true : undefined,
+          uploadDateRange: uploadDateRange || undefined,
+          minRecentAvgViews: minRecentAvgViews || undefined,
+          maxRecentAvgViews: maxRecentAvgViews || undefined,
           // Backend automatically excludes music and brand channels
         },
       };
@@ -862,6 +868,92 @@
             <option value="Philippines">Philippines</option>
             <option value="Indonesia">Indonesia</option>
           </select>
+        </div>
+
+        <!-- Upload Date Filter -->
+        <div class="p-4 border border-gray-200 rounded-md bg-gray-50">
+          <label class="block mb-3 text-sm font-medium text-gray-700">
+            Upload Date
+            <span class="ml-1 text-xs font-normal text-gray-500">(filter inactive channels)</span>
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              on:click={() => uploadDateRange = uploadDateRange === 'today' ? '' : 'today'}
+              class="px-4 py-2 text-sm font-medium transition-colors border rounded-md {uploadDateRange === 'today' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              on:click={() => uploadDateRange = uploadDateRange === 'this_week' ? '' : 'this_week'}
+              class="px-4 py-2 text-sm font-medium transition-colors border rounded-md {uploadDateRange === 'this_week' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
+            >
+              This Week
+            </button>
+            <button
+              type="button"
+              on:click={() => uploadDateRange = uploadDateRange === 'this_month' ? '' : 'this_month'}
+              class="px-4 py-2 text-sm font-medium transition-colors border rounded-md {uploadDateRange === 'this_month' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
+            >
+              This Month
+            </button>
+            <button
+              type="button"
+              on:click={() => uploadDateRange = uploadDateRange === '1_6_months' ? '' : '1_6_months'}
+              class="px-4 py-2 text-sm font-medium transition-colors border rounded-md {uploadDateRange === '1_6_months' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
+            >
+              1-6 Months
+            </button>
+            <button
+              type="button"
+              on:click={() => uploadDateRange = uploadDateRange === 'this_year' ? '' : 'this_year'}
+              class="px-4 py-2 text-sm font-medium transition-colors border rounded-md {uploadDateRange === 'this_year' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
+            >
+              This Year
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-gray-500">
+            Filter channels based on when they last uploaded a video
+          </p>
+        </div>
+
+        <!-- Recent Videos Average Views Filter -->
+        <div class="p-4 border border-gray-200 rounded-md bg-gray-50">
+          <label class="block mb-3 text-sm font-medium text-gray-700">
+            Recent Videos Avg. Views
+          </label>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="minRecentAvgViews" class="block mb-1 text-xs text-gray-600">
+                Minimum
+              </label>
+              <input
+                type="number"
+                id="minRecentAvgViews"
+                bind:value={minRecentAvgViews}
+                placeholder="e.g., 1000"
+                min="0"
+                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label for="maxRecentAvgViews" class="block mb-1 text-xs text-gray-600">
+                Maximum
+              </label>
+              <input
+                type="number"
+                id="maxRecentAvgViews"
+                bind:value={maxRecentAvgViews}
+                placeholder="e.g., 100000"
+                min="0"
+                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-gray-500">
+            Filter channels by the average views of their most recent videos
+          </p>
         </div>
 
         <!-- English Only Filter -->

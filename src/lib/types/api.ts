@@ -78,6 +78,9 @@ export interface SearchFilters {
   englishOnly?: boolean;
   excludeMusicChannels?: boolean;
   excludeBrands?: boolean;
+  uploadDateRange?: 'today' | 'this_week' | 'this_month' | '1_6_months' | 'this_year';
+  minRecentAvgViews?: number;
+  maxRecentAvgViews?: number;
 }
 
 export interface SearchRequest {
