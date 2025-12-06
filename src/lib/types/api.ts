@@ -74,7 +74,7 @@ export interface SearchFilters {
   maxSubscribers?: number;
   minAvgViews?: number;
   maxAvgViews?: number;
-  country?: string;
+  countries?: string[];
   englishOnly?: boolean;
   excludeMusicChannels?: boolean;
   excludeBrands?: boolean;
