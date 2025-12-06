@@ -14,11 +14,40 @@
   let maxSubscribers: number | undefined = undefined;
   let minAvgViews: number | undefined = undefined;
   let maxAvgViews: number | undefined = undefined;
-  let country = '';
+  let selectedCountries: string[] = [];
   let englishOnly = false;
   let uploadDateRange: 'today' | 'this_week' | 'this_month' | '1_6_months' | 'this_year' | '' = '';
   let minRecentAvgViews: number | undefined = undefined;
   let maxRecentAvgViews: number | undefined = undefined;
+
+  // Available countries for selection
+  const availableCountries = [
+    'United States',
+    'United Kingdom',
+    'Canada',
+    'Australia',
+    'India',
+    'Germany',
+    'France',
+    'Brazil',
+    'Mexico',
+    'Japan',
+    'South Korea',
+    'Spain',
+    'Italy',
+    'Netherlands',
+    'Philippines',
+    'Indonesia'
+  ];
+
+  // Toggle country selection
+  function toggleCountry(country: string) {
+    if (selectedCountries.includes(country)) {
+      selectedCountries = selectedCountries.filter(c => c !== country);
+    } else {
+      selectedCountries = [...selectedCountries, country];
+    }
+  }
 
   // Streaming progress
   let searchProgress = 0;
@@ -169,7 +198,7 @@
           maxSubscribers: maxSubscribers || undefined,
           minAvgViews: minAvgViews || undefined,
           maxAvgViews: maxAvgViews || undefined,
-          country: country || undefined,
+          countries: selectedCountries.length > 0 ? selectedCountries : undefined,
           englishOnly: englishOnly ? true : undefined,
           uploadDateRange: uploadDateRange || undefined,
           minRecentAvgViews: minRecentAvgViews || undefined,
@@ -840,34 +869,48 @@
 					<strong>Note:</strong> Music and brand channels are automatically excluded to provide better lead quality.
 				</div> -->
 
-        <!-- Country Filter -->
+        <!-- Countries Filter (Multi-select) -->
         <div>
-          <label for="country" class="block mb-2 text-sm font-medium text-gray-700">
-            Country (optional)
+          <label class="block mb-2 text-sm font-medium text-gray-700">
+            Countries (optional - select multiple)
           </label>
-          <select
-            id="country"
-            bind:value={country}
-            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="">Any country</option>
-            <option value="United States">United States</option>
-            <option value="India">India</option>
-            <option value="United Kingdom">United Kingdom</option>
-            <option value="Canada">Canada</option>
-            <option value="Australia">Australia</option>
-            <option value="Germany">Germany</option>
-            <option value="France">France</option>
-            <option value="Brazil">Brazil</option>
-            <option value="Mexico">Mexico</option>
-            <option value="Japan">Japan</option>
-            <option value="South Korea">South Korea</option>
-            <option value="Spain">Spain</option>
-            <option value="Italy">Italy</option>
-            <option value="Netherlands">Netherlands</option>
-            <option value="Philippines">Philippines</option>
-            <option value="Indonesia">Indonesia</option>
-          </select>
+          <div class="p-3 border border-gray-300 rounded-md bg-white max-h-60 overflow-y-auto">
+            {#if selectedCountries.length > 0}
+              <div class="mb-2 pb-2 border-b border-gray-200">
+                <p class="text-xs text-gray-600 mb-1">Selected ({selectedCountries.length}):</p>
+                <div class="flex flex-wrap gap-1">
+                  {#each selectedCountries as country}
+                    <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded">
+                      {country}
+                      <button
+                        type="button"
+                        on:click={() => toggleCountry(country)}
+                        class="hover:text-blue-900"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+            <div class="grid grid-cols-2 gap-2">
+              {#each availableCountries as country}
+                <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                  <input
+                    type="checkbox"
+                    checked={selectedCountries.includes(country)}
+                    on:change={() => toggleCountry(country)}
+                    class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span class="text-sm text-gray-700">{country}</span>
+                </label>
+              {/each}
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-gray-500">
+            Select multiple countries to increase results. Leave empty for any country.
+          </p>
         </div>
 
         <!-- Upload Date Filter -->
