@@ -107,70 +107,70 @@
     return `${Math.round(score)}%`;
   }
 
-	function formatDate(dateStr: string | undefined): string {
-		if (!dateStr) return 'Unknown';
-		try {
-			const date = new Date(dateStr);
-			const now = new Date();
-			const diffTime = Math.abs(now.getTime() - date.getTime());
-			const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  function formatDate(dateStr: string | undefined): string {
+    if (!dateStr) return 'Unknown';
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diffTime = Math.abs(now.getTime() - date.getTime());
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-			if (diffDays === 0) return 'Today';
-			if (diffDays === 1) return '1 day ago';
-			if (diffDays < 7) return `${diffDays} days ago`;
-			if (diffDays < 30) {
-				const weeks = Math.floor(diffDays / 7);
-				return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
-			}
-			if (diffDays < 365) {
-				const months = Math.floor(diffDays / 30);
-				return months === 1 ? '1 month ago' : `${months} months ago`;
-			}
-			const years = Math.floor(diffDays / 365);
-			return years === 1 ? '1 year ago' : `${years} years ago`;
-		} catch {
-			return dateStr;
-		}
-	}
+      if (diffDays === 0) return 'Today';
+      if (diffDays === 1) return '1 day ago';
+      if (diffDays < 7) return `${diffDays} days ago`;
+      if (diffDays < 30) {
+        const weeks = Math.floor(diffDays / 7);
+        return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+      }
+      if (diffDays < 365) {
+        const months = Math.floor(diffDays / 30);
+        return months === 1 ? '1 month ago' : `${months} months ago`;
+      }
+      const years = Math.floor(diffDays / 365);
+      return years === 1 ? '1 year ago' : `${years} years ago`;
+    } catch {
+      return dateStr;
+    }
+  }
 
-	function formatAvgViews(views: number | undefined): string {
-		if (!views) return 'Unknown';
-		// Reuse the same formatting logic as formatViews
-		if (views >= 1000000000) {
-			const value = views / 1000000000;
-			const rounded = Math.round(value * 100) / 100;
-			return `${rounded}B`;
-		}
-		if (views >= 1000000) {
-			const value = views / 1000000;
-			const rounded = Math.round(value * 100) / 100;
-			return `${rounded}M`;
-		}
-		if (views >= 1000) {
-			const value = views / 1000;
-			const rounded = Math.round(value * 100) / 100;
-			return `${rounded}K`;
-		}
-		return views.toLocaleString();
-	}
+  function formatAvgViews(views: number | undefined): string {
+    if (!views) return 'Unknown';
+    // Reuse the same formatting logic as formatViews
+    if (views >= 1000000000) {
+      const value = views / 1000000000;
+      const rounded = Math.round(value * 100) / 100;
+      return `${rounded}B`;
+    }
+    if (views >= 1000000) {
+      const value = views / 1000000;
+      const rounded = Math.round(value * 100) / 100;
+      return `${rounded}M`;
+    }
+    if (views >= 1000) {
+      const value = views / 1000;
+      const rounded = Math.round(value * 100) / 100;
+      return `${rounded}K`;
+    }
+    return views.toLocaleString();
+  }
 
-	function getVideoCountText(count: number): string {
-		if (count === 1) return '1 video';
-		return `${count} videos`;
-	}
+  function getVideoCountText(count: number): string {
+    if (count === 1) return '1 video';
+    return `${count} videos`;
+  }
 
-	function getEmailStatus(channel: ChannelSearchResult): { text: string; class: string } {
-		if (channel.emails && channel.emails.length > 0) {
-			return {
-				text: `${channel.emails.length} found`,
-				class: 'bg-green-100 text-green-800'
-			};
-		}
-		return {
-			text: 'Not found',
-			class: 'bg-gray-100 text-gray-800'
-		};
-	}
+  function getEmailStatus(channel: ChannelSearchResult): { text: string; class: string } {
+    if (channel.emails && channel.emails.length > 0) {
+      return {
+        text: `${channel.emails.length} found`,
+        class: 'bg-green-100 text-green-800',
+      };
+    }
+    return {
+      text: 'Not found',
+      class: 'bg-gray-100 text-gray-800',
+    };
+  }
 
   function showEmailDetails(channel: ChannelSearchResult) {
     selectedChannel = channel;
@@ -202,214 +202,230 @@
 </script>
 
 {#if channels.length > 0}
-  <!-- Sticky Results Section -->
-  <div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
-    <!-- Results Header (becomes sticky) -->
-    {#if stats}
-      <div class="p-4 border-b border-blue-200 bg-blue-50">
-        <div class="flex items-center gap-4">
-          <div>
-            <span class="font-semibold">Search Results</span>
-          </div>
-          <div>
-            <span class="font-semibold">Keyword:</span>
-            <span class="text-blue-700">{stats.keyword}</span>
-          </div>
-          <div>
-            <span class="font-semibold">Found:</span>
-            <span class="text-green-700">{stats.displayed}</span>
-          </div>
+  <!-- Results Header -->
+  {#if stats}
+    <div class="sticky top-0 z-20 p-4 border-b border-blue-200 bg-blue-50">
+      <div class="flex items-center gap-4">
+        <div>
+          <span class="font-semibold">Search Results</span>
+        </div>
+        <div>
+          <span class="font-semibold">Keyword:</span>
+          <span class="text-blue-700">{stats.keyword}</span>
+        </div>
+        <div>
+          <span class="font-semibold">Found:</span>
+          <span class="text-green-700">{stats.displayed}</span>
         </div>
       </div>
-    {/if}
+    </div>
+  {/if}
 
-		<!-- Sticky Table Header -->
-		<div class="overflow-x-auto bg-gray-50">
-			<table class="min-w-full table-fixed">
-				<thead>
-					<tr>
-						<th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[280px]">
-							Channel
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
-							Subscribers
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
-							Videos
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
-							Views
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[130px]">
-							Last Posted
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]" title="Average views of recent videos">
-							Avg Views
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
-							Country
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[140px]">
-							Relevance
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[180px]">
-							Email Status
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
-							Actions
-						</th>
-					</tr>
-				</thead>
-			</table>
-		</div>
-	</div>
+  <!-- Single Table with Sticky Header and Scrollable Body -->
+  <div
+    class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow"
+    style="max-height: 600px;"
+  >
+    <table class="min-w-full divide-y divide-gray-200 table-fixed">
+      <thead class="sticky top-0 z-10 bg-gray-50">
+        <tr>
+          <th
+            class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[280px]"
+          >
+            Channel
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+          >
+            Subscribers
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[100px]"
+          >
+            Videos
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+          >
+            Views
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[130px]"
+          >
+            Last Posted
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+            title="Average views of recent videos"
+          >
+            Avg Views
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[100px]"
+          >
+            Country
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[140px]"
+          >
+            Relevance
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[180px]"
+          >
+            Email Status
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+          >
+            Actions
+          </th>
+        </tr>
+      </thead>
+      <tbody class="bg-white divide-y divide-gray-200">
+        {#each channels as channel (channel.channelId)}
+          <tr class="transition-colors hover:bg-gray-50">
+            <td class="px-4 py-3 w-[280px]">
+              <div class="flex items-center">
+                {#if channel.thumbnailUrl}
+                  <img
+                    src={channel.thumbnailUrl}
+                    alt={channel.name}
+                    class="flex-shrink-0 w-10 h-10 mr-3 rounded-full"
+                  />
+                {/if}
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-gray-900 truncate max-w-[180px]">
+                    {channel.name}
+                  </div>
+                  {#if channel.description}
+                    <div class="text-xs text-gray-500 truncate max-w-[180px]">
+                      {channel.description}
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[120px]">
+              <div class="text-sm text-gray-900">
+                {formatSubscribers(channel.subscriberCount)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[100px]">
+              <div class="text-sm text-gray-900">
+                {formatVideos(channel.videoCount)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[120px]">
+              <div class="text-sm text-gray-900">
+                {formatViews(channel.viewCount)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[130px]">
+              <div class="text-sm text-gray-900">
+                {formatDate(channel.lastPostedVideoDate)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[120px]">
+              {#if channel.avgRecentViews && channel.latestVideos && channel.latestVideos.length > 0}
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm font-medium text-gray-900">
+                    {formatAvgViews(channel.avgRecentViews)}
+                  </span>
+                  <span
+                    class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                    title="Average of {getVideoCountText(channel.latestVideos.length)}"
+                  >
+                    {channel.latestVideos.length}
+                  </span>
+                </div>
+              {:else if channel.avgRecentViews}
+                <div class="text-sm text-gray-900">
+                  {formatAvgViews(channel.avgRecentViews)}
+                </div>
+              {:else}
+                <div class="text-sm text-gray-500">Unknown</div>
+              {/if}
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[100px]">
+              <div class="text-sm text-gray-900">
+                {channel.country || 'Unknown'}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[140px]">
+              <div class="flex items-center">
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
+                  <div
+                    class="bg-blue-600 h-2.5 rounded-full"
+                    style="width: {channel.relevanceScore}%"
+                  ></div>
+                </div>
+                <span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
+              </div>
+            </td>
+            <td class="px-3 py-3 w-[180px]">
+              {#if channel.emails && channel.emails.length > 0}
+                <div class="flex flex-col gap-1">
+                  {#each channel.emails as email}
+                    <div
+                      class="inline-flex items-center gap-1 px-2 text-xs font-semibold leading-5 text-green-800 bg-green-100 rounded"
+                    >
+                      <span class="truncate" title={email}>
+                        {email}
+                      </span>
+                      <button
+                        on:click={() => copyEmailToClipboard(email)}
+                        class="flex-shrink-0 text-green-700 transition-colors hover:text-green-900"
+                        title="Copy email"
+                      >
+                        <svg
+                          class="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <span
+                  class="inline-flex px-2 text-xs font-semibold leading-5 text-gray-800 bg-gray-100 rounded-full"
+                >
+                  Not found
+                </span>
+              {/if}
+            </td>
+            <td class="px-3 py-3 text-sm font-medium whitespace-nowrap w-[120px]">
+              <a
+                href={channel.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mr-2 text-blue-600 hover:text-blue-900"
+              >
+                Visit
+              </a>
+              <button
+                on:click={() => showEmailDetails(channel)}
+                class="text-green-600 hover:text-green-900 hover:underline"
+              >
+                Details
+              </button>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
 
-	<!-- Scrollable Table Body -->
-	<div class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow" style="max-height: 600px;">
-		<table class="min-w-full divide-y divide-gray-200 table-fixed">
-			<tbody class="bg-white divide-y divide-gray-200">
-				{#each channels as channel (channel.channelId)}
-					<tr class="transition-colors hover:bg-gray-50">
-						<td class="px-4 py-3 w-[280px]">
-							<div class="flex items-center">
-								{#if channel.thumbnailUrl}
-									<img
-										src={channel.thumbnailUrl}
-										alt={channel.name}
-										class="flex-shrink-0 w-10 h-10 mr-3 rounded-full"
-									/>
-								{/if}
-								<div class="min-w-0">
-									<div class="text-sm font-medium text-gray-900 truncate max-w-[180px]">
-										{channel.name}
-									</div>
-									{#if channel.description}
-										<div class="text-xs text-gray-500 truncate max-w-[180px]">
-											{channel.description}
-										</div>
-									{/if}
-								</div>
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
-							<div class="text-sm text-gray-900">
-								{formatSubscribers(channel.subscriberCount)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
-							<div class="text-sm text-gray-900">
-								{formatVideos(channel.videoCount)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
-							<div class="text-sm text-gray-900">
-								{formatViews(channel.viewCount)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[130px]">
-							<div class="text-sm text-gray-900">
-								{formatDate(channel.lastPostedVideoDate)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
-							{#if channel.avgRecentViews && channel.latestVideos && channel.latestVideos.length > 0}
-								<div class="flex items-center gap-1.5">
-									<span class="text-sm font-medium text-gray-900">
-										{formatAvgViews(channel.avgRecentViews)}
-									</span>
-									<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800" title="Average of {getVideoCountText(channel.latestVideos.length)}">
-										{channel.latestVideos.length}
-									</span>
-								</div>
-							{:else if channel.avgRecentViews}
-								<div class="text-sm text-gray-900">
-									{formatAvgViews(channel.avgRecentViews)}
-								</div>
-							{:else}
-								<div class="text-sm text-gray-500">
-									Unknown
-								</div>
-							{/if}
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
-							<div class="text-sm text-gray-900">
-								{channel.country || 'Unknown'}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[140px]">
-							<div class="flex items-center">
-								<div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
-									<div
-										class="bg-blue-600 h-2.5 rounded-full"
-										style="width: {channel.relevanceScore}%"
-									></div>
-								</div>
-								<span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
-							</div>
-						</td>
-						<td class="px-3 py-3 w-[180px]">
-							{#if channel.emails && channel.emails.length > 0}
-								<div class="flex flex-col gap-1">
-									{#each channel.emails as email}
-										<div
-											class="inline-flex items-center gap-1 px-2 text-xs font-semibold leading-5 text-green-800 bg-green-100 rounded"
-										>
-											<span class="truncate" title={email}>
-												{email}
-											</span>
-											<button
-												on:click={() => copyEmailToClipboard(email)}
-												class="flex-shrink-0 text-green-700 transition-colors hover:text-green-900"
-												title="Copy email"
-											>
-												<svg
-													class="w-3.5 h-3.5"
-													fill="none"
-													viewBox="0 0 24 24"
-													stroke="currentColor"
-												>
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-													/>
-												</svg>
-											</button>
-										</div>
-									{/each}
-								</div>
-							{:else}
-								<span
-									class="inline-flex px-2 text-xs font-semibold leading-5 text-gray-800 bg-gray-100 rounded-full"
-								>
-									Not found
-								</span>
-							{/if}
-						</td>
-						<td class="px-3 py-3 text-sm font-medium whitespace-nowrap w-[120px]">
-							<a
-								href={channel.url}
-								target="_blank"
-								rel="noopener noreferrer"
-								class="mr-2 text-blue-600 hover:text-blue-900"
-							>
-								Visit
-							</a>
-							<button
-								on:click={() => showEmailDetails(channel)}
-								class="text-green-600 hover:text-green-900 hover:underline"
-							>
-								Details
-							</button>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
-
-	<div class="flex flex-col items-center gap-3 mt-4">
+  <div class="flex flex-col items-center gap-3 mt-4">
     <div class="text-sm text-center text-gray-500">
       Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
       {#if stats && stats.keyword}
