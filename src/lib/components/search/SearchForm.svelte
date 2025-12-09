@@ -4,6 +4,7 @@
   import { apiPost, apiGet } from '$lib/api/client';
   import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
   import { onMount, onDestroy } from 'svelte';
+  import { getSessionKey } from '$lib/utils/session-manager';
 
   let keyword = '';
   let totalChannelsLimit = 50; // Total channels user wants to find
@@ -188,11 +189,16 @@
     try {
       console.log('[Search] Starting search for:', keyword.trim());
 
+      // Get session key for this browser tab (enables multi-tab support)
+      const sessionKey = getSessionKey();
+      console.log(`[Search] Using session key: ${sessionKey}`);
+
       const requestBody: SearchRequest = {
         keyword: keyword.trim(),
         page: 1,
         pageSize: totalChannelsLimit, // Request all results at once (user's desired limit)
         limit: totalChannelsLimit, // Total channels to scrape from YouTube
+        sessionKey, // Add session key for multi-tab isolation
         filters: {
           minSubscribers: minSubscribers || undefined,
           maxSubscribers: maxSubscribers || undefined,

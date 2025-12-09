@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
+import { searchChannelsWithPool } from '$lib/server/youtube/scraper-service';
 import { ChannelFilter } from '$lib/server/youtube/filters';
 import { supabase, tables } from '$lib/server/db/supabase';
 import type { FilterConfig, ChannelInsert } from '$lib/types/models';
@@ -7,21 +7,21 @@ import type { FilterConfig, ChannelInsert } from '$lib/types/models';
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { keyword, filters, limit = 50 } = body;
+		const { keyword, filters, limit = 50, sessionKey } = body;
 
 		// Validate input
 		if (!keyword || typeof keyword !== 'string') {
 			return json({ error: 'Keyword is required' }, { status: 400 });
 		}
 
-		console.log(`[API] Searching YouTube for: ${keyword}`);
+		if (!sessionKey || typeof sessionKey !== 'string') {
+			return json({ error: 'Session key is required for multi-tab support' }, { status: 400 });
+		}
+
+		console.log(`[API] Searching YouTube for: ${keyword} (session: ${sessionKey})`);
 
 		const enableEnrichment = true; // Always enable enrichment (needed for filtering)
 		console.log(`[API] Limit: ${limit}, Enrichment: ${enableEnrichment}`);
-
-		// Get scraper instance
-		console.log('[API] Getting scraper instance...');
-		const scraper = await getScraperInstance();
 
 		// Prepare filters for the scraper
 		const scraperFilters = {
@@ -32,15 +32,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			excludeBrands: filters?.excludeBrands ?? false
 		};
 
-		// Search for channels with filters applied during scraping
+		// Search for channels using browser pool (supports multi-tab)
 		console.log(
-			`[API] Calling searchChannels with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, filters=${JSON.stringify(scraperFilters)}`
+			`[API] Calling searchChannelsWithPool with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, sessionKey=${sessionKey}`
 		);
-		const rawChannels = await scraper.searchChannels(
+		const rawChannels = await searchChannelsWithPool(
 			keyword,
 			limit,
 			enableEnrichment,
-			scraperFilters
+			scraperFilters,
+			sessionKey
 		);
 
 		// Apply remaining filters that couldn't be applied during scraping (like language)

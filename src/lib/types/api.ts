@@ -89,5 +89,6 @@ export interface SearchRequest {
   page?: number;
   pageSize?: number;
   searchSessionId?: string;
+  sessionKey?: string; // Client-generated session key for multi-tab isolation
   filters?: SearchFilters;
 }
