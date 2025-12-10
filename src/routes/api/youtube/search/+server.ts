@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { searchChannelsWithPool } from '$lib/server/youtube/scraper-service';
+import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
 import { ChannelFilter } from '$lib/server/youtube/filters';
 import { supabase, tables } from '$lib/server/db/supabase';
 import type { FilterConfig, ChannelInsert } from '$lib/types/models';
@@ -23,6 +23,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		const enableEnrichment = true; // Always enable enrichment (needed for filtering)
 		console.log(`[API] Limit: ${limit}, Enrichment: ${enableEnrichment}`);
 
+		// Get scraper instance
+		console.log('[API] Getting scraper instance...');
+		const scraper = await getScraperInstance();
+
 		// Prepare filters for the scraper
 		const scraperFilters = {
 			minSubscribers: filters?.minSubscribers,
@@ -32,16 +36,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			excludeBrands: filters?.excludeBrands ?? false
 		};
 
-		// Search for channels using browser pool (supports multi-tab)
+		// Search for channels with filters applied during scraping
+		// Note: In Vercel serverless, each search gets a new browser instance
+		// Session isolation happens in the database, not via browser pooling
 		console.log(
-			`[API] Calling searchChannelsWithPool with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, sessionKey=${sessionKey}`
+			`[API] Calling searchChannels with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, sessionKey=${sessionKey}`
 		);
-		const rawChannels = await searchChannelsWithPool(
+		const rawChannels = await scraper.searchChannels(
 			keyword,
 			limit,
 			enableEnrichment,
-			scraperFilters,
-			sessionKey
+			scraperFilters
 		);
 
 		// Apply remaining filters that couldn't be applied during scraping (like language)
