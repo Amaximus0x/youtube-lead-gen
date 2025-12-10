@@ -1,139 +1,101 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getScraperInstance } from '$lib/server/youtube/scraper-puppeteer';
-import { ChannelFilter } from '$lib/server/youtube/filters';
-import { supabase, tables } from '$lib/server/db/supabase';
-import type { FilterConfig, ChannelInsert } from '$lib/types/models';
+import { PUBLIC_API_URL } from '$env/static/public';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { keyword, filters, limit = 50 } = body;
+		const { keyword, filters, limit = 50, sessionKey } = body;
 
 		// Validate input
 		if (!keyword || typeof keyword !== 'string') {
 			return json({ error: 'Keyword is required' }, { status: 400 });
 		}
 
-		console.log(`[API] Searching YouTube for: ${keyword}`);
+		if (!sessionKey || typeof sessionKey !== 'string') {
+			return json({ error: 'Session key is required for multi-tab support' }, { status: 400 });
+		}
 
-		const enableEnrichment = true; // Always enable enrichment (needed for filtering)
-		console.log(`[API] Limit: ${limit}, Enrichment: ${enableEnrichment}`);
+		console.log(`[API] Forwarding search to backend: ${keyword} (session: ${sessionKey})`);
 
-		// Get scraper instance
-		console.log('[API] Getting scraper instance...');
-		const scraper = await getScraperInstance();
+		// Get backend URL from environment variable
+		const backendUrl = PUBLIC_API_URL || 'http://localhost:3000';
 
-		// Prepare filters for the scraper
-		const scraperFilters = {
-			minSubscribers: filters?.minSubscribers,
-			maxSubscribers: filters?.maxSubscribers,
-			country: filters?.country,
-			excludeMusicChannels: filters?.excludeMusicChannels ?? false,
-			excludeBrands: filters?.excludeBrands ?? false
-		};
+		console.log(`[API] Backend URL: ${backendUrl}`);
 
-		// Search for channels with filters applied during scraping
-		console.log(
-			`[API] Calling searchChannels with keyword="${keyword}", limit=${limit}, enrichData=${enableEnrichment}, filters=${JSON.stringify(scraperFilters)}`
-		);
-		const rawChannels = await scraper.searchChannels(
-			keyword,
-			limit,
-			enableEnrichment,
-			scraperFilters
-		);
+		// Forward request to backend API (which has concurrency: 5 for parallel searches)
+		const backendResponse = await fetch(`${backendUrl}/api/youtube/search`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				keyword,
+				limit,
+				pageSize: limit,
+				sessionKey,
+				userId: null, // Optional: add user authentication here
+				clientId: null,
+				filters: {
+					minSubscribers: filters?.minSubscribers,
+					maxSubscribers: filters?.maxSubscribers,
+					countries: filters?.countries,
+					englishOnly: filters?.englishOnly,
+					excludeMusicChannels: filters?.excludeMusicChannels,
+					excludeBrands: filters?.excludeBrands,
+					uploadDateRange: filters?.uploadDateRange,
+					minRecentAvgViews: filters?.minRecentAvgViews,
+					maxRecentAvgViews: filters?.maxRecentAvgViews,
+				},
+			}),
+		});
 
-		// Apply remaining filters that couldn't be applied during scraping (like language)
-		const filter = new ChannelFilter();
-		const filterConfig: FilterConfig = {
-			minSubscribers: filters?.minSubscribers,
-			maxSubscribers: filters?.maxSubscribers,
-			country: filters?.country,
-			excludeMusicChannels: filters?.excludeMusicChannels ?? false,
-			excludeBrands: filters?.excludeBrands ?? false,
-			language: filters?.language,
-			uploadFrequency: filters?.uploadFrequency,
-			engagementThreshold: filters?.engagementThreshold
-		};
+		if (!backendResponse.ok) {
+			const errorText = await backendResponse.text();
+			console.error('[API] Backend error:', errorText);
+			return json(
+				{
+					error: 'Backend request failed',
+					details: errorText,
+					backendUrl
+				},
+				{ status: backendResponse.status }
+			);
+		}
 
-		// Only apply language filter here (other filters already applied)
-		let filteredChannels = rawChannels;
-		if (filters?.language) {
-			filteredChannels = filter.applyFilters(rawChannels, {
-				...filterConfig,
-				minSubscribers: undefined, // Already filtered
-				maxSubscribers: undefined, // Already filtered
-				country: undefined, // Already filtered
-				excludeMusicChannels: false, // Already filtered
-				excludeBrands: false // Already filtered
+		const backendData = await backendResponse.json();
+
+		console.log('[API] Backend response status:', backendData.status);
+
+		// Check if backend returned a jobId (async job)
+		if (backendData.data?.jobId) {
+			const jobId = backendData.data.jobId;
+			console.log(`[API] Backend created job: ${jobId}`);
+
+			// Return jobId so frontend can poll for results
+			return json({
+				success: true,
+				jobId,
+				message: 'Search job created on backend',
 			});
 		}
 
-		// Calculate relevance scores
-		const channelsWithScores = filteredChannels.map((channel) => ({
-			...channel,
-			relevanceScore: filter.calculateRelevanceScore(channel, keyword)
-		}));
-
-		// Sort by relevance score
-		channelsWithScores.sort((a, b) => b.relevanceScore - a.relevanceScore);
-
-		// Save channels to database if Supabase is available
-		if (supabase) {
-			try {
-				const channelsToInsert = channelsWithScores.map((channel) => ({
-					channel_id: channel.channelId,
-					name: channel.name,
-					url: channel.url,
-					description: channel.description || null,
-					subscriber_count: channel.subscriberCount || null,
-					view_count: channel.viewCount || null,
-					video_count: channel.videoCount || null,
-					country: channel.country || null,
-					search_keyword: keyword,
-					relevance_score: channel.relevanceScore,
-					status: 'pending' as const,
-					email_verified: false
-				}));
-
-				// Upsert channels (insert or update if exists)
-				const { error: dbError } = await supabase
-					.from('channels')
-					// @ts-ignore - Supabase types inference issue with upsert
-					.upsert(channelsToInsert, { onConflict: 'channel_id', ignoreDuplicates: false });
-
-				if (dbError) {
-					console.error('Error saving channels to database:', dbError);
-					// Don't fail the request if DB save fails
-				} else {
-					console.log(`[API] Saved ${channelsToInsert.length} channels to database`);
-				}
-			} catch (dbError) {
-				console.error('Database error:', dbError);
-				// Continue even if DB save fails
-			}
+		// If backend returned results directly, return them
+		if (backendData.data?.channels) {
+			console.log(`[API] Backend returned ${backendData.data.channels.length} channels`);
+			return json({
+				success: true,
+				channels: backendData.data.channels,
+				stats: backendData.data.stats,
+				pagination: backendData.data.pagination,
+			});
 		}
 
-		// Return ALL channels immediately (no pagination needed since we already filtered to limit)
-		console.log(`[API] Returning ${channelsWithScores.length} channels to client`);
-
+		// Fallback: return whatever backend sent
 		return json({
 			success: true,
-			channels: channelsWithScores, // Return all channels
-			stats: {
-				total: filteredChannels.length, // Total matching channels (already filtered)
-				filtered: filteredChannels.length, // Same as total since filtering is done during scraping
-				keyword,
-				displayed: channelsWithScores.length,
-				remaining: 0 // No remaining since we return all
-			},
-			pagination: {
-				currentPage: 1,
-				pageSize: channelsWithScores.length,
-				totalChannels: channelsWithScores.length,
-				hasMore: false // No more pages needed
-			}
+			...backendData,
 		});
+
 	} catch (error) {
 		console.error('[API] Search error:', error);
 		console.error('[API] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
