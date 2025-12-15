@@ -205,7 +205,7 @@
   }
 </script>
 
-{#if displayChannels.length > 0}
+{#if channels.length > 0}
   <!-- Sticky Results Section -->
   <div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
     <!-- Results Header (becomes sticky) -->
@@ -272,7 +272,7 @@
 	<div class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow" style="max-height: 600px;">
 		<table class="min-w-full divide-y divide-gray-200 table-fixed">
 			<tbody class="bg-white divide-y divide-gray-200">
-				{#each displayChannels as channel (channel.channelId)}
+				{#each channels as channel (channel.channelId)}
 					<tr class="transition-colors hover:bg-gray-50">
 						<td class="px-4 py-3 w-[280px]">
 							<div class="flex items-center">
@@ -287,6 +287,11 @@
 									<div class="text-sm font-medium text-gray-900 truncate max-w-[180px]">
 										{channel.name}
 									</div>
+									{#if channel.description}
+										<div class="text-xs text-gray-500 truncate max-w-[180px]">
+											{channel.description}
+										</div>
+									{/if}
 								</div>
 							</div>
 						</td>
@@ -410,7 +415,7 @@
 
 	<div class="flex flex-col items-center gap-3 mt-4">
     <div class="text-sm text-center text-gray-500">
-      Showing {displayChannels.length} channel{displayChannels.length !== 1 ? 's' : ''}
+      Showing {channels.length} channel{channels.length !== 1 ? 's' : ''}
       {#if stats && stats.keyword}
         for "{stats.keyword}"
       {/if}
@@ -450,7 +455,7 @@
 			</button>
 			{#if searchLimit && channels.length < searchLimit}
 				<p class="text-xs text-gray-500">
-					{searchLimit - displayChannels.length} more channel{searchLimit - displayChannels.length !== 1 ? 's' : ''} available (limit: {searchLimit})
+					{searchLimit - channels.length} more channel{searchLimit - channels.length !== 1 ? 's' : ''} available (limit: {searchLimit})
 				</p>
 			{/if}
 		{/if} -->
