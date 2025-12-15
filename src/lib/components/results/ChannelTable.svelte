@@ -111,70 +111,70 @@
     return `${Math.round(score)}%`;
   }
 
-  function formatDate(dateStr: string | undefined): string {
-    if (!dateStr) return 'Unknown';
-    try {
-      const date = new Date(dateStr);
-      const now = new Date();
-      const diffTime = Math.abs(now.getTime() - date.getTime());
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+	function formatDate(dateStr: string | undefined): string {
+		if (!dateStr) return 'Unknown';
+		try {
+			const date = new Date(dateStr);
+			const now = new Date();
+			const diffTime = Math.abs(now.getTime() - date.getTime());
+			const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-      if (diffDays === 0) return 'Today';
-      if (diffDays === 1) return '1 day ago';
-      if (diffDays < 7) return `${diffDays} days ago`;
-      if (diffDays < 30) {
-        const weeks = Math.floor(diffDays / 7);
-        return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
-      }
-      if (diffDays < 365) {
-        const months = Math.floor(diffDays / 30);
-        return months === 1 ? '1 month ago' : `${months} months ago`;
-      }
-      const years = Math.floor(diffDays / 365);
-      return years === 1 ? '1 year ago' : `${years} years ago`;
-    } catch {
-      return dateStr;
-    }
-  }
+			if (diffDays === 0) return 'Today';
+			if (diffDays === 1) return '1 day ago';
+			if (diffDays < 7) return `${diffDays} days ago`;
+			if (diffDays < 30) {
+				const weeks = Math.floor(diffDays / 7);
+				return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+			}
+			if (diffDays < 365) {
+				const months = Math.floor(diffDays / 30);
+				return months === 1 ? '1 month ago' : `${months} months ago`;
+			}
+			const years = Math.floor(diffDays / 365);
+			return years === 1 ? '1 year ago' : `${years} years ago`;
+		} catch {
+			return dateStr;
+		}
+	}
 
-  function formatAvgViews(views: number | undefined): string {
-    if (!views) return 'Unknown';
-    // Reuse the same formatting logic as formatViews
-    if (views >= 1000000000) {
-      const value = views / 1000000000;
-      const rounded = Math.round(value * 100) / 100;
-      return `${rounded}B`;
-    }
-    if (views >= 1000000) {
-      const value = views / 1000000;
-      const rounded = Math.round(value * 100) / 100;
-      return `${rounded}M`;
-    }
-    if (views >= 1000) {
-      const value = views / 1000;
-      const rounded = Math.round(value * 100) / 100;
-      return `${rounded}K`;
-    }
-    return views.toLocaleString();
-  }
+	function formatAvgViews(views: number | undefined): string {
+		if (!views) return 'Unknown';
+		// Reuse the same formatting logic as formatViews
+		if (views >= 1000000000) {
+			const value = views / 1000000000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}B`;
+		}
+		if (views >= 1000000) {
+			const value = views / 1000000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}M`;
+		}
+		if (views >= 1000) {
+			const value = views / 1000;
+			const rounded = Math.round(value * 100) / 100;
+			return `${rounded}K`;
+		}
+		return views.toLocaleString();
+	}
 
-  function getVideoCountText(count: number): string {
-    if (count === 1) return '1 video';
-    return `${count} videos`;
-  }
+	function getVideoCountText(count: number): string {
+		if (count === 1) return '1 video';
+		return `${count} videos`;
+	}
 
-  function getEmailStatus(channel: ChannelSearchResult): { text: string; class: string } {
-    if (channel.emails && channel.emails.length > 0) {
-      return {
-        text: `${channel.emails.length} found`,
-        class: 'bg-green-100 text-green-800',
-      };
-    }
-    return {
-      text: 'Not found',
-      class: 'bg-gray-100 text-gray-800',
-    };
-  }
+	function getEmailStatus(channel: ChannelSearchResult): { text: string; class: string } {
+		if (channel.emails && channel.emails.length > 0) {
+			return {
+				text: `${channel.emails.length} found`,
+				class: 'bg-green-100 text-green-800'
+			};
+		}
+		return {
+			text: 'Not found',
+			class: 'bg-gray-100 text-gray-800'
+		};
+	}
 
   function showEmailDetails(channel: ChannelSearchResult) {
     selectedChannel = channel;
