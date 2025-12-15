@@ -1,36 +1,15 @@
 <script lang="ts">
 	import SearchForm from '$lib/components/search/SearchForm.svelte';
 	import ChannelTable from '$lib/components/results/ChannelTable.svelte';
-	import FilterPanel from '$lib/components/results/FilterPanel.svelte';
 	import { channelsStore } from '$lib/stores/channels';
 	import { exportChannelsToCSV } from '$lib/utils/export';
-	import { applyClientFilters, clearAllFilters, getFilterStats } from '$lib/utils/clientFilters';
-	import type { ClientFilters } from '$lib/utils/clientFilters';
 
 	let activeTab: 'generate' | 'extract' = 'generate';
 
-	// Client-side filters (applied after search completes)
-	let clientFilters: ClientFilters = clearAllFilters();
-
-	// Apply filters to channels
-	$: allChannels = $channelsStore.channels;
-	$: filteredChannels = applyClientFilters(allChannels, clientFilters);
-	$: filterStats = getFilterStats(allChannels, clientFilters);
-
-	$: hasResults = allChannels.length > 0;
-	$: showFilters = hasResults && !$channelsStore.isSearching;
+	$: hasResults = $channelsStore.channels.length > 0;
 
 	function handleExportData() {
-		// Export filtered channels
-		exportChannelsToCSV(filteredChannels);
-	}
-
-	function handleFilterChange(event: CustomEvent<ClientFilters>) {
-		clientFilters = event.detail;
-	}
-
-	function handleClearFilters() {
-		clientFilters = clearAllFilters();
+		exportChannelsToCSV($channelsStore.channels);
 	}
 </script>
 
@@ -85,35 +64,10 @@
 			<SearchForm />
 		</div>
 
-		<!-- Filter Panel (shown after search completes) -->
-		{#if showFilters}
-			<div class="mb-6">
-				<FilterPanel
-					bind:filters={clientFilters}
-					{allChannels}
-					filteredCount={filteredChannels.length}
-					totalCount={allChannels.length}
-					on:filterChange={handleFilterChange}
-					on:clearFilters={handleClearFilters}
-				/>
-			</div>
-		{/if}
-
 		<!-- Results Section -->
 		{#if hasResults || $channelsStore.isSearching}
 			<div class="card">
-				<div class="flex items-center justify-between mb-6">
-					<h2 class="text-xl font-bold text-gray-900">Search Results</h2>
-
-					{#if !$channelsStore.isSearching && filteredChannels.length > 0}
-						<button
-							on:click={handleExportData}
-							class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
-						>
-							Export {filteredChannels.length} Channel{filteredChannels.length !== 1 ? 's' : ''}
-						</button>
-					{/if}
-				</div>
+				<h2 class="mb-6 text-xl font-bold text-gray-900">Search Results</h2>
 
 				{#if $channelsStore.isSearching}
 					<div class="py-12 text-center">
@@ -140,8 +94,7 @@
 						<p class="mt-2 text-sm text-gray-500">This may take some time</p>
 					</div>
 				{:else}
-					<!-- Pass filtered channels to table -->
-					<ChannelTable channels={filteredChannels} />
+					<ChannelTable />
 				{/if}
 			</div>
 		{/if}
@@ -165,7 +118,8 @@
 						/>
 					</svg>
 					<p class="mb-4 text-gray-600">
-						You have {filteredChannels.length} channel{filteredChannels.length !== 1
+						You have {$channelsStore.channels.length} channel{$channelsStore.channels.length !==
+						1
 							? 's'
 							: ''} ready for email extraction.
 					</p>
