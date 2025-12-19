@@ -22,6 +22,19 @@
   // LocalStorage key for tracking active jobs
   const ACTIVE_JOB_KEY = 'youtube-lead-gen-active-job';
 
+  // Function to check if a job is still active on the backend
+  async function isJobStillActive(jobId: string): Promise<boolean> {
+    try {
+      const res = await apiGet<any>(`/youtube/search/${jobId}`);
+      const data = res?.data || res;
+      // Job is active if status is not 'completed' or 'failed'
+      return data.status && !['completed', 'failed'].includes(data.status);
+    } catch (error) {
+      console.warn(`[Cleanup] Could not check status of job ${jobId}:`, error);
+      return false; // If we can't check, assume it's not active
+    }
+  }
+
   // Function to cancel job via regular API call
   async function cancelJobViaApi(jobId: string) {
     try {
@@ -38,10 +51,35 @@
     // Check if there's a job from a previous session (page was refreshed/closed)
     const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (savedJobId) {
-      console.log(`[Mount] Found orphaned job from previous session: ${savedJobId}`);
-      // Cancel the orphaned job using regular API call (not beacon)
-      await cancelJobViaApi(savedJobId);
-      localStorage.removeItem(ACTIVE_JOB_KEY);
+      // IMPORTANT: Don't cancel if this is just an HMR remount and the job is still active
+      // Check if the saved job ID matches the current activeJobId (HMR case)
+      if (activeJobId === savedJobId) {
+        console.log(`[Mount] Job ${savedJobId} is still active (HMR remount), keeping it running`);
+        // Clear the localStorage flag since the job is still active
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+      } else {
+        // Double-check if the job is actually still running before canceling
+        const stillActive = await isJobStillActive(savedJobId);
+        if (stillActive) {
+          console.log(`[Mount] Job ${savedJobId} is still running on backend, not canceling (likely HMR)`);
+          // The job is still running, so restore it as the active job
+          activeJobId = savedJobId;
+          // Clear localStorage since we've restored it
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+
+          // Resume polling for this job
+          const filters = {}; // Use empty filters for resume
+          console.log(`[Mount] Resuming polling for job ${savedJobId}`);
+          pollSearchJob(savedJobId, filters, totalChannelsLimit).catch(err => {
+            console.error('[Mount] Error resuming polling:', err);
+          });
+        } else {
+          console.log(`[Mount] Found orphaned job from previous session: ${savedJobId}`);
+          // Cancel the orphaned job using regular API call (not beacon)
+          await cancelJobViaApi(savedJobId);
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        }
+      }
     }
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -408,188 +446,236 @@
     }, 300000); // 5 minutes
   }
 
-  // Poll a search job until completion or timeout (STREAMING VERSION)
+  // Poll a search job until completion or timeout (STREAMING VERSION WITH RESTART)
   async function pollSearchJob(jobId: string, filters: any, searchLimit: number) {
-    const pollInterval = 2000; // 2 seconds
-    const maxPolls = 300; // 10 minutes max
-    let pollCount = 0;
+    const { pollWithRestart } = await import('$lib/utils/pollWithRestart');
+
     let lastChannelCount = 0;
 
     channelsStore.setSearching(true);
     channelsStore.setEnriching(true);
 
-    while (pollCount < maxPolls) {
-      // Check if this job is still the active one
-      if (activeJobId !== jobId) {
-        console.log(`[Streaming] Job ${jobId} canceled - new search started`);
-        return; // Exit this polling loop
-      }
+    try {
+      const result = await pollWithRestart({
+        jobId,
+        targetLimit: searchLimit,
+        maxPollsPerCycle: 300,  // Reset counter every 300 polls
+        initialInterval: 1500,   // 1.5s between polls
+        maxCycles: 5,            // Up to 1500 total polls (5 × 300)
 
-      try {
-        console.log(`[Streaming] Poll #${pollCount + 1}: Checking job ${jobId}`);
+        // Check if job is still active
+        isActive: () => activeJobId === jobId,
 
-        const res = await apiGet<any>(`/youtube/search/${jobId}`);
-        const data = res?.data || res;
+        // Progress callback
+        onProgress: (progress) => {
+          searchProgress = progress.percentComplete;
 
-        // Double-check job is still active before updating UI
-        if (activeJobId !== jobId) {
-          console.log(`[Streaming] Job ${jobId} canceled during update - aborting`);
-          return;
-        }
+          // Update status message
+          statusMessage = getStatusMessage(progress.status, null);
 
-        // Update progress
-        if (data.progress !== undefined) {
-          searchProgress = data.progress;
-          channelsStore.setProgress(data.progress, data.message || statusMessage);
-        }
+          console.log(
+            `[Polling] Cycle ${progress.currentCycle}, Poll #${progress.totalPolls}: ` +
+            `${progress.channelsFound}/${searchLimit} channels (${progress.percentComplete}%)`
+          );
+        },
 
-        // Update status message
-        if (data.status) {
-          statusMessage = getStatusMessage(data.status, data.stats);
-        }
-
-        // Handle streaming updates
-        if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
-          const currentCount = data.channels.length;
-
-          // Check if backend sent incremental new channels
-          if (data.newChannels && Array.isArray(data.newChannels) && data.newChannels.length > 0) {
-            console.log(
-              `[Streaming] Received ${data.newChannels.length} NEW channels (total: ${currentCount})`
-            );
-
-            // APPEND only new channels (incremental update)
-            channelsStore.appendChannels(
-              data.newChannels,
-              data.stats,
-              {
-                searchSessionId: data.sessionId,
-                hasMore: !data.isComplete,
-                currentPage: 1,
-                pageSize: searchLimit,
-                totalChannels: currentCount,
-                totalPages: 1
-              }
-            );
-
-            lastChannelCount = currentCount;
-          } else if (currentCount > lastChannelCount) {
-            // Fallback: if no newChannels field, use old logic (replace all)
-            console.log(
-              `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new) - using full update`
-            );
-
-            // Update UI with all channels (old behavior)
-            channelsStore.setChannels(
-              data.channels,
-              data.stats,
-              {
-                searchSessionId: data.sessionId,
-                hasMore: !data.isComplete,
-                currentPage: 1,
-                pageSize: searchLimit,
-                totalChannels: currentCount,
-                totalPages: 1
-              },
-              searchLimit,
-              filters
-            );
-
-            lastChannelCount = currentCount;
+        // Update callback - called on each poll with full data
+        onUpdate: (data) => {
+          // Double-check job is still active before updating UI
+          if (activeJobId !== jobId) {
+            console.log(`[Polling] Job ${jobId} canceled during update - skipping UI update`);
+            return;
           }
 
-          // Keep enriching indicator visible
-          channelsStore.setEnriching(!data.isComplete);
-          channelsStore.setSearching(false); // Hide main search spinner
+          // Update progress
+          if (data.progress !== undefined) {
+            searchProgress = data.progress;
+            channelsStore.setProgress(data.progress, data.message || statusMessage);
+          }
+
+          // Update status message
+          if (data.status) {
+            statusMessage = getStatusMessage(data.status, data.stats);
+          }
+
+          // Handle streaming updates
+          if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
+            const currentCount = data.channels.length;
+
+            // Check if backend sent incremental new channels
+            if (data.newChannels && Array.isArray(data.newChannels) && data.newChannels.length > 0) {
+              console.log(
+                `[Streaming] Received ${data.newChannels.length} NEW channels (total: ${currentCount})`
+              );
+
+              // APPEND only new channels (incremental update)
+              channelsStore.appendChannels(
+                data.newChannels,
+                data.stats,
+                {
+                  searchSessionId: data.sessionId,
+                  hasMore: !data.isComplete,
+                  currentPage: 1,
+                  pageSize: searchLimit,
+                  totalChannels: currentCount,
+                  totalPages: 1
+                }
+              );
+
+              lastChannelCount = currentCount;
+            } else if (currentCount > lastChannelCount) {
+              // Fallback: if no newChannels field, use old logic (replace all)
+              console.log(
+                `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new) - using full update`
+              );
+
+              // Update UI with all channels (old behavior)
+              channelsStore.setChannels(
+                data.channels,
+                data.stats,
+                {
+                  searchSessionId: data.sessionId,
+                  hasMore: !data.isComplete,
+                  currentPage: 1,
+                  pageSize: searchLimit,
+                  totalChannels: currentCount,
+                  totalPages: 1
+                },
+                searchLimit,
+                filters
+              );
+
+              lastChannelCount = currentCount;
+            }
+
+            // Keep enriching indicator visible
+            channelsStore.setEnriching(!data.isComplete);
+            channelsStore.setSearching(false); // Hide main search spinner
+          }
+
+          // Handle collecting status
+          if (data.status === 'collecting' || data.status === 'collecting_more') {
+            console.log(`[Streaming] ${data.status}...`);
+            statusMessage = getStatusMessage(data.status, data.stats);
+          }
         }
+      });
 
-        // Handle collecting status
-        if (data.status === 'collecting' || data.status === 'collecting_more') {
-          console.log(`[Streaming] ${data.status}...`);
-          statusMessage = getStatusMessage(data.status, data.stats);
-        }
+      // Handle result
+      if (result.success && result.finalData) {
+        const data = result.finalData;
 
-        // Completed
-        if (data.status === 'completed') {
-          console.log('[Streaming] Search completed!');
+        console.log('[Polling] ✅ Search completed successfully!');
 
+        channelsStore.setChannels(
+          data.channels,
+          data.stats,
+          {
+            searchSessionId: data.sessionId,
+            hasMore: false,
+            currentPage: 1,
+            pageSize: searchLimit,
+            totalChannels: data.channels?.length || result.channelsFound,
+            totalPages: 1
+          },
+          searchLimit,
+          filters
+        );
+
+        channelsStore.setSearching(false);
+        channelsStore.setEnriching(false);
+        searchProgress = 100;
+        statusMessage = data.stats?.message || 'Search complete!';
+
+        // Clear active job and localStorage since job completed successfully
+        activeJobId = null;
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+
+        // Show success message
+        toastStore.show(
+          `Search complete! Found ${result.channelsFound} channels in ${Math.round(result.duration / 1000)}s (${result.totalPolls} polls, ${result.cyclesUsed} cycles)`,
+          'success',
+          5000
+        );
+
+      } else if (result.error === 'Cancelled') {
+        console.log('[Polling] Search cancelled by user');
+        // Don't show error - user cancelled
+
+      } else if (result.error === 'Max cycles reached') {
+        console.log(`[Polling] ⚠️  Max polling cycles reached. Found ${result.channelsFound} channels`);
+
+        // Update with partial results if available
+        if (result.finalData && result.finalData.channels) {
           channelsStore.setChannels(
-            data.channels,
-            data.stats,
+            result.finalData.channels,
+            result.finalData.stats,
             {
-              searchSessionId: data.sessionId,
+              searchSessionId: result.finalData.sessionId,
               hasMore: false,
               currentPage: 1,
               pageSize: searchLimit,
-              totalChannels: data.channels.length,
+              totalChannels: result.channelsFound,
               totalPages: 1
             },
             searchLimit,
             filters
           );
-
-          channelsStore.setSearching(false);
-          channelsStore.setEnriching(false);
-          searchProgress = 100;
-          statusMessage = data.stats?.message || 'Search complete!';
-
-          // Clear active job and localStorage since job completed successfully
-          activeJobId = null;
-          localStorage.removeItem(ACTIVE_JOB_KEY);
-
-          return;
         }
 
-        // Error handling
-        if (data.status === 'failed' || data.error) {
-          throw new Error(data.error || 'Search failed');
-        }
-
-      } catch (err) {
-        console.error('[Streaming] Polling error:', err);
-        const errorMessage = err instanceof Error ? err.message : 'Polling error';
-
-        // Show user-friendly toast notification
-        if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
-          toastStore.show(
-            'Network error: Please check your internet connection and try again.',
-            'error',
-            8000
-          );
-        } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
-          toastStore.show(
-            'No internet connection. Please connect to the internet and try again.',
-            'error',
-            8000
-          );
-        } else if (errorMessage.includes('timeout')) {
-          toastStore.show(
-            'Request timed out. Please try again.',
-            'error',
-            7000
-          );
-        } else {
-          toastStore.show(
-            `Search error: ${errorMessage}`,
-            'error',
-            7000
-          );
-        }
-
-        channelsStore.setError(errorMessage);
         channelsStore.setSearching(false);
         channelsStore.setEnriching(false);
-        return;
+
+        // Show warning with partial results
+        toastStore.show(
+          `Search timed out. Found ${result.channelsFound} channels (partial results). Backend may still be processing.`,
+          'warning',
+          8000
+        );
+
+        activeJobId = null;
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+
+      } else {
+        // Other errors
+        throw new Error(result.error || 'Polling failed');
       }
 
-      pollCount++;
-      await new Promise((r) => setTimeout(r, pollInterval));
-    }
+    } catch (err) {
+      console.error('[Polling] Error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Polling error';
 
-    // Timeout
-    channelsStore.setError('Search timed out after 10 minutes');
-    channelsStore.setSearching(false);
-    channelsStore.setEnriching(false);
+      // Show user-friendly toast notification
+      if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
+        toastStore.show(
+          'Network error: Please check your internet connection and try again.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
+        toastStore.show(
+          'No internet connection. Please connect to the internet and try again.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('timeout')) {
+        toastStore.show(
+          'Request timed out. Please try again.',
+          'error',
+          7000
+        );
+      } else {
+        toastStore.show(
+          `Search error: ${errorMessage}`,
+          'error',
+          7000
+        );
+      }
+
+      channelsStore.setError(errorMessage);
+      channelsStore.setSearching(false);
+      channelsStore.setEnriching(false);
+    }
   }
 
   function getStatusMessage(status: string, stats: any): string {
@@ -694,6 +780,62 @@
     statusMessage = 'Search stopped by user';
 
     console.log('[Stop] Search stopped - results and form data preserved');
+  }
+
+  // Export functions for use in parent components
+  export { handleLoadMoreChannels, handleEnrichVideoData };
+
+  /**
+   * Load more enriched channels from database
+   */
+  async function handleLoadMoreChannels(sessionId: string, offset: number, limit: number) {
+    try {
+      console.log(`[LoadMore] Fetching ${limit} more channels from offset ${offset}`);
+
+      const response = await apiPost<any>('/youtube/search/load-more', {
+        sessionId,
+        offset,
+        limit,
+      });
+
+      if (response.status === 'success' && response.data) {
+        console.log(`[LoadMore] Received ${response.data.channels.length} channels`);
+        return response.data;
+      } else {
+        throw new Error(response.message || 'Failed to load more channels');
+      }
+    } catch (error) {
+      console.error('[LoadMore] Error:', error);
+      toastStore.show(
+        error instanceof Error ? error.message : 'Failed to load more channels',
+        'error',
+        5000
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Enrich video data for channels missing it
+   */
+  async function handleEnrichVideoData(channelIds: string[]) {
+    try {
+      console.log(`[EnrichVideoData] Starting enrichment for ${channelIds.length} channels`);
+
+      const response = await apiPost<any>('/youtube/channels/enrich-video-data', {
+        channelIds,
+      });
+
+      if (response.status === 'success' && response.data) {
+        console.log(`[EnrichVideoData] Completed: ${response.data.message}`);
+        return response.data;
+      } else {
+        throw new Error(response.message || 'Failed to enrich video data');
+      }
+    } catch (error) {
+      console.error('[EnrichVideoData] Error:', error);
+      throw error;
+    }
   }
 </script>
 

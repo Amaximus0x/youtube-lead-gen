@@ -5,6 +5,7 @@
 
   // Accept channels as prop (for filtered channels from parent)
   export let channels: ChannelSearchResult[] = [];
+  export let searchFormHandlers: any = null;
 
   // Fallback to store if no prop provided (backward compatibility)
   $: displayChannels = channels.length > 0 ? channels : $channelsStore.channels;
@@ -20,6 +21,8 @@
   let showEmailModal = false;
   let showToast = false;
   let toastMessage = '';
+  let isLoadingMoreChannels = false;
+  let isEnrichingVideoData = false;
 
   async function handleLoadMore() {
     if (!pagination || !currentKeyword) return;
@@ -61,6 +64,167 @@
     } finally {
       // Ensure loading state is reset even if there's an error
       channelsStore.setLoadingMore(false);
+    }
+  }
+
+  /**
+   * Load more enriched channels from database
+   */
+  async function handleLoadMoreFromDatabase() {
+    if (!searchFormHandlers || !pagination || !pagination.searchSessionId) {
+      console.error('[LoadMoreDB] Missing required data');
+      return;
+    }
+
+    isLoadingMoreChannels = true;
+
+    try {
+      const offset = displayChannels.length;
+      const limit = 20; // Fetch 20 more channels at a time
+
+      console.log(`[LoadMoreDB] Fetching ${limit} channels from offset ${offset}`);
+
+      const data = await searchFormHandlers.handleLoadMoreChannels(
+        pagination.searchSessionId,
+        offset,
+        limit
+      );
+
+      if (data && data.channels && data.channels.length > 0) {
+        console.log(`[LoadMoreDB] Received ${data.channels.length} channels`);
+
+        // Track the count before appending
+        const beforeCount = displayChannels.length;
+
+        // Append to store (will filter duplicates internally)
+        channelsStore.appendChannels(
+          data.channels,
+          {
+            ...stats,
+            displayed: displayChannels.length + data.channels.length,
+          },
+          {
+            ...pagination,
+            hasMore: data.hasMore,
+          }
+        );
+
+        // Wait a tick for the store to update, then calculate actual added count
+        setTimeout(() => {
+          const afterCount = displayChannels.length;
+          const actualAdded = afterCount - beforeCount;
+          const duplicatesFiltered = data.channels.length - actualAdded;
+
+          toastMessage = `Loaded ${actualAdded} new channel${actualAdded !== 1 ? 's' : ''}!${duplicatesFiltered > 0 ? ` (${duplicatesFiltered} duplicate${duplicatesFiltered !== 1 ? 's' : ''} filtered)` : ''}`;
+          showToast = true;
+          setTimeout(() => {
+            showToast = false;
+          }, 3000);
+        }, 100);
+      }
+    } catch (error) {
+      console.error('[LoadMoreDB] Error:', error);
+      toastMessage = 'Failed to load more channels';
+      showToast = true;
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+    } finally {
+      isLoadingMoreChannels = false;
+    }
+  }
+
+  /**
+   * Enrich video data for channels missing it
+   */
+  async function handleGetVideoData() {
+    if (!searchFormHandlers || !pagination || !pagination.searchSessionId) {
+      console.error('[GetVideoData] Missing searchFormHandlers or pagination');
+      return;
+    }
+
+    // Find channels missing video data
+    const channelsNeedingVideoData = displayChannels.filter(
+      (ch) => !ch.lastPostedVideoDate || !ch.avgRecentViews
+    );
+
+    if (channelsNeedingVideoData.length === 0) {
+      toastMessage = 'All channels already have video data!';
+      showToast = true;
+      setTimeout(() => {
+        showToast = false;
+      }, 3000);
+      return;
+    }
+
+    isEnrichingVideoData = true;
+
+    try {
+      const channelIds = channelsNeedingVideoData.map((ch) => ch.channelId);
+      console.log(`[GetVideoData] Enriching ${channelIds.length} channels`);
+
+      toastMessage = `Enriching video data for ${channelIds.length} channels... This may take a few minutes.`;
+      showToast = true;
+
+      const result = await searchFormHandlers.handleEnrichVideoData(channelIds);
+
+      // After enrichment completes, fetch updated data from database
+      console.log(`[GetVideoData] Fetching updated channel data...`);
+
+      try {
+        // Fetch updated data for the enriched channels
+        const updatedData = await searchFormHandlers.handleLoadMoreChannels(
+          pagination.searchSessionId,
+          0, // Start from beginning
+          displayChannels.length // Fetch all current channels
+        );
+
+        if (updatedData && updatedData.channels) {
+          console.log(`[GetVideoData] Received ${updatedData.channels.length} updated channels`);
+
+          // Update the store with fresh data (replacing existing channels)
+          channelsStore.setChannels(
+            updatedData.channels,
+            stats,
+            pagination,
+            searchLimit,
+            searchFilters
+          );
+
+          // Show success message
+          showToast = false;
+          setTimeout(() => {
+            toastMessage = `${result.message} - Data refreshed automatically!`;
+            showToast = true;
+            setTimeout(() => {
+              showToast = false;
+            }, 5000);
+          }, 100);
+        }
+      } catch (refreshError) {
+        console.error('[GetVideoData] Failed to refresh data:', refreshError);
+        // Show partial success message
+        showToast = false;
+        setTimeout(() => {
+          toastMessage = `${result.message} - Please refresh page to see updates.`;
+          showToast = true;
+          setTimeout(() => {
+            showToast = false;
+          }, 8000);
+        }, 100);
+      }
+    } catch (error) {
+      console.error('[GetVideoData] Error:', error);
+      showToast = false;
+      setTimeout(() => {
+        toastMessage = 'Failed to enrich video data. Check console for details.';
+        showToast = true;
+        setTimeout(() => {
+          showToast = false;
+        }, 5000);
+      }, 100);
+    } finally {
+      isEnrichingVideoData = false;
     }
   }
 
@@ -206,209 +370,225 @@
 </script>
 
 {#if displayChannels.length > 0}
-  <!-- Sticky Results Section -->
-  <div class="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
-    <!-- Results Header (becomes sticky) -->
-    {#if stats}
-      <div class="p-4 border-b border-blue-200 bg-blue-50">
-        <div class="flex items-center gap-4">
-          <div>
-            <span class="font-semibold">Search Results</span>
-          </div>
-          <div>
-            <span class="font-semibold">Keyword:</span>
-            <span class="text-blue-700">{stats.keyword}</span>
-          </div>
-          <div>
-            <span class="font-semibold">Found:</span>
-            <span class="text-green-700">{stats.displayed}</span>
-          </div>
+  <!-- Results Header -->
+  {#if stats}
+    <div class="sticky top-0 z-20 p-4 border-b border-blue-200 bg-blue-50">
+      <div class="flex items-center gap-4">
+        <div>
+          <span class="font-semibold">Search Results</span>
+        </div>
+        <div>
+          <span class="font-semibold">Keyword:</span>
+          <span class="text-blue-700">{stats.keyword}</span>
+        </div>
+        <div>
+          <span class="font-semibold">Found:</span>
+          <span class="text-green-700">{stats.displayed}</span>
         </div>
       </div>
-    {/if}
+    </div>
+  {/if}
 
-		<!-- Sticky Table Header -->
-		<div class="overflow-x-auto bg-gray-50">
-			<table class="min-w-full table-fixed">
-				<thead>
-					<tr>
-						<th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[280px]">
-							Channel
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
-							Subscribers
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
-							Videos
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
-							Views
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[130px]">
-							Last Posted
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]" title="Average views of recent videos">
-							Avg Views
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[100px]">
-							Country
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[140px]">
-							Relevance
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[180px]">
-							Email Status
-						</th>
-						<th class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase w-[120px]">
-							Actions
-						</th>
-					</tr>
-				</thead>
-			</table>
-		</div>
-	</div>
+  <!-- Single Table with Sticky Header and Scrollable Body -->
+  <div
+    class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow"
+    style="max-height: 600px;"
+  >
+    <table class="min-w-full divide-y divide-gray-200 table-fixed">
+      <thead class="sticky top-0 z-10 bg-gray-50">
+        <tr>
+          <th
+            class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[280px]"
+          >
+            Channel
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+          >
+            Subscribers
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[100px]"
+          >
+            Videos
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+          >
+            Views
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[130px]"
+          >
+            Last Posted
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+            title="Average views of recent videos"
+          >
+            Avg Views
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[100px]"
+          >
+            Country
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[140px]"
+          >
+            Relevance
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[180px]"
+          >
+            Email Status
+          </th>
+          <th
+            class="px-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase bg-gray-50 w-[120px]"
+          >
+            Actions
+          </th>
+        </tr>
+      </thead>
+      <tbody class="bg-white divide-y divide-gray-200">
+        {#each displayChannels as channel (channel.channelId)}
+          <tr class="transition-colors hover:bg-gray-50">
+            <td class="px-4 py-3 w-[280px]">
+              <div class="flex items-center">
+                {#if channel.thumbnailUrl}
+                  <img
+                    src={channel.thumbnailUrl}
+                    alt={channel.name}
+                    class="flex-shrink-0 w-10 h-10 mr-3 rounded-full"
+                  />
+                {/if}
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-gray-900 truncate max-w-[180px]">
+                    {channel.name}
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[120px]">
+              <div class="text-sm text-gray-900">
+                {formatSubscribers(channel.subscriberCount)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[100px]">
+              <div class="text-sm text-gray-900">
+                {formatVideos(channel.videoCount)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[120px]">
+              <div class="text-sm text-gray-900">
+                {formatViews(channel.viewCount)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[130px]">
+              <div class="text-sm text-gray-900">
+                {formatDate(channel.lastPostedVideoDate)}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[120px]">
+              {#if channel.avgRecentViews && channel.latestVideos && channel.latestVideos.length > 0}
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm font-medium text-gray-900">
+                    {formatAvgViews(channel.avgRecentViews)}
+                  </span>
+                  <span
+                    class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                    title="Average of {getVideoCountText(channel.latestVideos.length)}"
+                  >
+                    {channel.latestVideos.length}
+                  </span>
+                </div>
+              {:else if channel.avgRecentViews}
+                <div class="text-sm text-gray-900">
+                  {formatAvgViews(channel.avgRecentViews)}
+                </div>
+              {:else}
+                <div class="text-sm text-gray-500">Unknown</div>
+              {/if}
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[100px]">
+              <div class="text-sm text-gray-900">
+                {channel.country || 'Unknown'}
+              </div>
+            </td>
+            <td class="px-3 py-3 whitespace-nowrap w-[140px]">
+              <div class="flex items-center">
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
+                  <div
+                    class="bg-blue-600 h-2.5 rounded-full"
+                    style="width: {channel.relevanceScore}%"
+                  ></div>
+                </div>
+                <span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
+              </div>
+            </td>
+            <td class="px-3 py-3 w-[180px]">
+              {#if channel.emails && channel.emails.length > 0}
+                <div class="flex flex-col gap-1">
+                  {#each channel.emails as email}
+                    <div
+                      class="inline-flex items-center gap-1 px-2 text-xs font-semibold leading-5 text-green-800 bg-green-100 rounded"
+                    >
+                      <span class="truncate" title={email}>
+                        {email}
+                      </span>
+                      <button
+                        on:click={() => copyEmailToClipboard(email)}
+                        class="flex-shrink-0 text-green-700 transition-colors hover:text-green-900"
+                        title="Copy email"
+                      >
+                        <svg
+                          class="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <span
+                  class="inline-flex px-2 text-xs font-semibold leading-5 text-gray-800 bg-gray-100 rounded-full"
+                >
+                  Not found
+                </span>
+              {/if}
+            </td>
+            <td class="px-3 py-3 text-sm font-medium whitespace-nowrap w-[120px]">
+              <a
+                href={channel.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mr-2 text-blue-600 hover:text-blue-900"
+              >
+                Visit
+              </a>
+              <button
+                on:click={() => showEmailDetails(channel)}
+                class="text-green-600 hover:text-green-900 hover:underline"
+              >
+                Details
+              </button>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
 
-	<!-- Scrollable Table Body -->
-	<div class="overflow-x-auto overflow-y-auto bg-white rounded-b-lg shadow" style="max-height: 600px;">
-		<table class="min-w-full divide-y divide-gray-200 table-fixed">
-			<tbody class="bg-white divide-y divide-gray-200">
-				{#each displayChannels as channel (channel.channelId)}
-					<tr class="transition-colors hover:bg-gray-50">
-						<td class="px-4 py-3 w-[280px]">
-							<div class="flex items-center">
-								{#if channel.thumbnailUrl}
-									<img
-										src={channel.thumbnailUrl}
-										alt={channel.name}
-										class="flex-shrink-0 w-10 h-10 mr-3 rounded-full"
-									/>
-								{/if}
-								<div class="min-w-0">
-									<div class="text-sm font-medium text-gray-900 truncate max-w-[180px]">
-										{channel.name}
-									</div>
-								</div>
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
-							<div class="text-sm text-gray-900">
-								{formatSubscribers(channel.subscriberCount)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
-							<div class="text-sm text-gray-900">
-								{formatVideos(channel.videoCount)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
-							<div class="text-sm text-gray-900">
-								{formatViews(channel.viewCount)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[130px]">
-							<div class="text-sm text-gray-900">
-								{formatDate(channel.lastPostedVideoDate)}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[120px]">
-							{#if channel.avgRecentViews && channel.latestVideos && channel.latestVideos.length > 0}
-								<div class="flex items-center gap-1.5">
-									<span class="text-sm font-medium text-gray-900">
-										{formatAvgViews(channel.avgRecentViews)}
-									</span>
-									<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800" title="Average of {getVideoCountText(channel.latestVideos.length)}">
-										{channel.latestVideos.length}
-									</span>
-								</div>
-							{:else if channel.avgRecentViews}
-								<div class="text-sm text-gray-900">
-									{formatAvgViews(channel.avgRecentViews)}
-								</div>
-							{:else}
-								<div class="text-sm text-gray-500">
-									Unknown
-								</div>
-							{/if}
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[100px]">
-							<div class="text-sm text-gray-900">
-								{channel.country || 'Unknown'}
-							</div>
-						</td>
-						<td class="px-3 py-3 whitespace-nowrap w-[140px]">
-							<div class="flex items-center">
-								<div class="w-full bg-gray-200 rounded-full h-2.5 mr-2" style="width: 50px;">
-									<div
-										class="bg-blue-600 h-2.5 rounded-full"
-										style="width: {channel.relevanceScore}%"
-									></div>
-								</div>
-								<span class="text-sm text-gray-900">{formatRelevance(channel.relevanceScore)}</span>
-							</div>
-						</td>
-						<td class="px-3 py-3 w-[180px]">
-							{#if channel.emails && channel.emails.length > 0}
-								<div class="flex flex-col gap-1">
-									{#each channel.emails as email}
-										<div
-											class="inline-flex items-center gap-1 px-2 text-xs font-semibold leading-5 text-green-800 bg-green-100 rounded"
-										>
-											<span class="truncate" title={email}>
-												{email}
-											</span>
-											<button
-												on:click={() => copyEmailToClipboard(email)}
-												class="flex-shrink-0 text-green-700 transition-colors hover:text-green-900"
-												title="Copy email"
-											>
-												<svg
-													class="w-3.5 h-3.5"
-													fill="none"
-													viewBox="0 0 24 24"
-													stroke="currentColor"
-												>
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-													/>
-												</svg>
-											</button>
-										</div>
-									{/each}
-								</div>
-							{:else}
-								<span
-									class="inline-flex px-2 text-xs font-semibold leading-5 text-gray-800 bg-gray-100 rounded-full"
-								>
-									Not found
-								</span>
-							{/if}
-						</td>
-						<td class="px-3 py-3 text-sm font-medium whitespace-nowrap w-[120px]">
-							<a
-								href={channel.url}
-								target="_blank"
-								rel="noopener noreferrer"
-								class="mr-2 text-blue-600 hover:text-blue-900"
-							>
-								Visit
-							</a>
-							<button
-								on:click={() => showEmailDetails(channel)}
-								class="text-green-600 hover:text-green-900 hover:underline"
-							>
-								Details
-							</button>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
-
-	<div class="flex flex-col items-center gap-3 mt-4">
+  <div class="flex flex-col items-center gap-3 mt-4">
     <div class="text-sm text-center text-gray-500">
       Showing {displayChannels.length} channel{displayChannels.length !== 1 ? 's' : ''}
       {#if stats && stats.keyword}
@@ -416,44 +596,81 @@
       {/if}
     </div>
 
-    <!-- Load More Button - Temporarily Commented Out -->
-    <!-- {#if pagination && (pagination.hasMore || pagination.currentPage < pagination.totalPages || (searchLimit && channels.length < searchLimit))}
-			<button
-				on:click={handleLoadMore}
-				disabled={isLoadingMore}
-				class="flex items-center gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-			>
-				{#if isLoadingMore}
-					<svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
-						<circle
-							class="opacity-25"
-							cx="12"
-							cy="12"
-							r="10"
-							stroke="currentColor"
-							stroke-width="4"
-							fill="none"
-						/>
-						<path
-							class="opacity-75"
-							fill="currentColor"
-							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-						/>
-					</svg>
-					Loading...
-				{:else}
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-					</svg>
-					Load More Channels
-				{/if}
-			</button>
-			{#if searchLimit && channels.length < searchLimit}
-				<p class="text-xs text-gray-500">
-					{searchLimit - displayChannels.length} more channel{searchLimit - displayChannels.length !== 1 ? 's' : ''} available (limit: {searchLimit})
-				</p>
-			{/if}
-		{/if} -->
+    <!-- Action Buttons -->
+    <div class="flex flex-wrap gap-3">
+      <!-- Load More Button -->
+      {#if pagination && pagination.searchSessionId && stats && stats.filtered > displayChannels.length}
+        <button
+          on:click={handleLoadMoreFromDatabase}
+          disabled={isLoadingMoreChannels}
+          class="flex items-center gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {#if isLoadingMoreChannels}
+            <svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+                fill="none"
+              />
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+            Loading...
+          {:else}
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+            Load More ({stats.filtered - displayChannels.length} remaining)
+          {/if}
+        </button>
+      {/if}
+
+      <!-- Get Video Data Button -->
+      <!-- {#if displayChannels.some((ch) => !ch.lastPostedVideoDate || !ch.avgRecentViews)}
+        <button
+          on:click={handleGetVideoData}
+          disabled={isEnrichingVideoData}
+          class="flex items-center gap-2 px-6 py-3 font-semibold text-white transition-colors bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {#if isEnrichingVideoData}
+            <svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+                fill="none"
+              />
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+            Enriching...
+          {:else}
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+              />
+            </svg>
+            Get Video Data
+          {/if}
+        </button>
+      {/if} -->
+    </div>
   </div>
 {:else}
   <div class="py-12 text-center rounded-lg bg-gray-50">
