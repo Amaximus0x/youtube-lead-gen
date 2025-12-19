@@ -8,6 +8,7 @@
 	import type { ClientFilters } from '$lib/utils/clientFilters';
 
 	let activeTab: 'generate' | 'extract' = 'generate';
+	let searchFormRef: any;
 
 	// Client-side filters (applied after search completes)
 	let clientFilters: ClientFilters = clearAllFilters();
@@ -82,7 +83,7 @@
 	<!-- Dynamic Content -->
 	{#if activeTab === 'generate'}
 		<div class="mb-8">
-			<SearchForm />
+			<SearchForm bind:this={searchFormRef} />
 		</div>
 
 		<!-- Filter Panel (shown after search completes) -->
@@ -141,7 +142,10 @@
 					</div>
 				{:else}
 					<!-- Pass filtered channels to table -->
-					<ChannelTable channels={filteredChannels} />
+					<ChannelTable
+						channels={filteredChannels}
+						searchFormHandlers={searchFormRef}
+					/>
 				{/if}
 			</div>
 		{/if}

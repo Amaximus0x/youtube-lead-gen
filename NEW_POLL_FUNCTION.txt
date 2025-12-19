@@ -1,0 +1,234 @@
+// REPLACEMENT for pollSearchJob function (lines 449-631 in SearchForm.svelte)
+// This new version uses pollWithRestart utility to handle unlimited polling
+
+  // Poll a search job until completion or timeout (STREAMING VERSION WITH RESTART)
+  async function pollSearchJob(jobId: string, filters: any, searchLimit: number) {
+    const { pollWithRestart } = await import('$lib/utils/pollWithRestart');
+
+    let lastChannelCount = 0;
+
+    channelsStore.setSearching(true);
+    channelsStore.setEnriching(true);
+
+    try {
+      const result = await pollWithRestart({
+        jobId,
+        targetLimit: searchLimit,
+        maxPollsPerCycle: 300,  // Reset counter every 300 polls
+        initialInterval: 1500,   // 1.5s between polls
+        maxCycles: 5,            // Up to 1500 total polls (5 × 300)
+
+        // Check if job is still active
+        isActive: () => activeJobId === jobId,
+
+        // Progress callback
+        onProgress: (progress) => {
+          searchProgress = progress.percentComplete;
+
+          // Update status message
+          statusMessage = getStatusMessage(progress.status, null);
+
+          console.log(
+            `[Polling] Cycle ${progress.currentCycle}, Poll #${progress.totalPolls}: ` +
+            `${progress.channelsFound}/${searchLimit} channels (${progress.percentComplete}%)`
+          );
+        },
+
+        // Update callback - called on each poll with full data
+        onUpdate: (data) => {
+          // Double-check job is still active before updating UI
+          if (activeJobId !== jobId) {
+            console.log(`[Polling] Job ${jobId} canceled during update - skipping UI update`);
+            return;
+          }
+
+          // Update progress
+          if (data.progress !== undefined) {
+            searchProgress = data.progress;
+            channelsStore.setProgress(data.progress, data.message || statusMessage);
+          }
+
+          // Update status message
+          if (data.status) {
+            statusMessage = getStatusMessage(data.status, data.stats);
+          }
+
+          // Handle streaming updates
+          if (data.status === 'streaming' && data.channels && Array.isArray(data.channels)) {
+            const currentCount = data.channels.length;
+
+            // Check if backend sent incremental new channels
+            if (data.newChannels && Array.isArray(data.newChannels) && data.newChannels.length > 0) {
+              console.log(
+                `[Streaming] Received ${data.newChannels.length} NEW channels (total: ${currentCount})`
+              );
+
+              // APPEND only new channels (incremental update)
+              channelsStore.appendChannels(
+                data.newChannels,
+                data.stats,
+                {
+                  searchSessionId: data.sessionId,
+                  hasMore: !data.isComplete,
+                  currentPage: 1,
+                  pageSize: searchLimit,
+                  totalChannels: currentCount,
+                  totalPages: 1
+                }
+              );
+
+              lastChannelCount = currentCount;
+            } else if (currentCount > lastChannelCount) {
+              // Fallback: if no newChannels field, use old logic (replace all)
+              console.log(
+                `[Streaming] Received ${currentCount} channels (${currentCount - lastChannelCount} new) - using full update`
+              );
+
+              // Update UI with all channels (old behavior)
+              channelsStore.setChannels(
+                data.channels,
+                data.stats,
+                {
+                  searchSessionId: data.sessionId,
+                  hasMore: !data.isComplete,
+                  currentPage: 1,
+                  pageSize: searchLimit,
+                  totalChannels: currentCount,
+                  totalPages: 1
+                },
+                searchLimit,
+                filters
+              );
+
+              lastChannelCount = currentCount;
+            }
+
+            // Keep enriching indicator visible
+            channelsStore.setEnriching(!data.isComplete);
+            channelsStore.setSearching(false); // Hide main search spinner
+          }
+
+          // Handle collecting status
+          if (data.status === 'collecting' || data.status === 'collecting_more') {
+            console.log(`[Streaming] ${data.status}...`);
+            statusMessage = getStatusMessage(data.status, data.stats);
+          }
+        }
+      });
+
+      // Handle result
+      if (result.success && result.finalData) {
+        const data = result.finalData;
+
+        console.log('[Polling] ✅ Search completed successfully!');
+
+        channelsStore.setChannels(
+          data.channels,
+          data.stats,
+          {
+            searchSessionId: data.sessionId,
+            hasMore: false,
+            currentPage: 1,
+            pageSize: searchLimit,
+            totalChannels: data.channels?.length || result.channelsFound,
+            totalPages: 1
+          },
+          searchLimit,
+          filters
+        );
+
+        channelsStore.setSearching(false);
+        channelsStore.setEnriching(false);
+        searchProgress = 100;
+        statusMessage = data.stats?.message || 'Search complete!';
+
+        // Clear active job and localStorage since job completed successfully
+        activeJobId = null;
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+
+        // Show success message
+        toastStore.show(
+          `Search complete! Found ${result.channelsFound} channels in ${Math.round(result.duration / 1000)}s (${result.totalPolls} polls, ${result.cyclesUsed} cycles)`,
+          'success',
+          5000
+        );
+
+      } else if (result.error === 'Cancelled') {
+        console.log('[Polling] Search cancelled by user');
+        // Don't show error - user cancelled
+
+      } else if (result.error === 'Max cycles reached') {
+        console.log(`[Polling] ⚠️  Max polling cycles reached. Found ${result.channelsFound} channels`);
+
+        // Update with partial results if available
+        if (result.finalData && result.finalData.channels) {
+          channelsStore.setChannels(
+            result.finalData.channels,
+            result.finalData.stats,
+            {
+              searchSessionId: result.finalData.sessionId,
+              hasMore: false,
+              currentPage: 1,
+              pageSize: searchLimit,
+              totalChannels: result.channelsFound,
+              totalPages: 1
+            },
+            searchLimit,
+            filters
+          );
+        }
+
+        channelsStore.setSearching(false);
+        channelsStore.setEnriching(false);
+
+        // Show warning with partial results
+        toastStore.show(
+          `Search timed out. Found ${result.channelsFound} channels (partial results). Backend may still be processing.`,
+          'warning',
+          8000
+        );
+
+        activeJobId = null;
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+
+      } else {
+        // Other errors
+        throw new Error(result.error || 'Polling failed');
+      }
+
+    } catch (err) {
+      console.error('[Polling] Error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Polling error';
+
+      // Show user-friendly toast notification
+      if (errorMessage.includes('ERR_NAME_NOT_RESOLVED') || errorMessage.includes('net::')) {
+        toastStore.show(
+          'Network error: Please check your internet connection and try again.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('ERR_INTERNET_DISCONNECTED')) {
+        toastStore.show(
+          'No internet connection. Please connect to the internet and try again.',
+          'error',
+          8000
+        );
+      } else if (errorMessage.includes('timeout')) {
+        toastStore.show(
+          'Request timed out. Please try again.',
+          'error',
+          7000
+        );
+      } else {
+        toastStore.show(
+          `Search error: ${errorMessage}`,
+          'error',
+          7000
+        );
+      }
+
+      channelsStore.setError(errorMessage);
+      channelsStore.setSearching(false);
+      channelsStore.setEnriching(false);
+    }
+  }
