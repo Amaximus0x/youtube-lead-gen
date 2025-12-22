@@ -487,8 +487,12 @@
             return;
           }
 
-          // Update progress
-          if (data.progress !== undefined) {
+          // IMPORTANT: Don't update progress from backend data.progress
+          // The backend's progress values are hardcoded (10, 20, 30, 100) and don't reflect
+          // actual enrichment progress. The onProgress callback already calculates accurate
+          // progress based on channelsFound / targetLimit.
+          // Only use backend progress when status is 'completed' to ensure we hit 100%
+          if (data.status === 'completed' && data.progress !== undefined) {
             searchProgress = data.progress;
             channelsStore.setProgress(data.progress, data.message || statusMessage);
           }
