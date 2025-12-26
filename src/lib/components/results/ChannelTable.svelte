@@ -23,6 +23,7 @@
   let toastMessage = '';
   let isLoadingMoreChannels = false;
   let isEnrichingVideoData = false;
+  let isSearchingMore = false;
 
   async function handleLoadMore() {
     if (!pagination || !currentKeyword) return;
@@ -64,6 +65,57 @@
     } finally {
       // Ensure loading state is reset even if there's an error
       channelsStore.setLoadingMore(false);
+    }
+  }
+
+  /**
+   * Search 50 More - Continue search with continuation token
+   */
+  async function handleSearchMore() {
+    if (!pagination || !pagination.searchSessionId) {
+      console.error('[SearchMore] Missing required data');
+      showToastMessage('Unable to search more: session not found');
+      return;
+    }
+
+    isSearchingMore = true;
+
+    try {
+      console.log(`[SearchMore] Requesting 50 more channels for session ${pagination.searchSessionId}`);
+
+      const response = await fetch(`/api/youtube/search/continue/${pagination.searchSessionId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          additionalChannels: 50,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to search more channels');
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.channels) {
+        console.log(`[SearchMore] Received ${data.channels.length} new channels`);
+
+        // Append new channels to store
+        channelsStore.appendChannels(data.channels, data.stats, data.pagination);
+
+        showToastMessage(`Found ${data.channels.length} more channels!`);
+      } else {
+        throw new Error(data.error || 'Failed to search more channels');
+      }
+    } catch (error) {
+      console.error('[SearchMore] Error:', error);
+      showToastMessage(
+        error instanceof Error ? error.message : 'Failed to search more channels'
+      );
+    } finally {
+      isSearchingMore = false;
     }
   }
 
@@ -628,6 +680,40 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
             Load More ({stats.filtered - displayChannels.length} remaining)
+          {/if}
+        </button>
+      {/if}
+
+      <!-- Search 50 More Button -->
+      {#if pagination && pagination.searchSessionId && pagination.hasMore}
+        <button
+          on:click={handleSearchMore}
+          disabled={isSearchingMore}
+          class="flex items-center gap-2 px-6 py-3 font-semibold text-white transition-colors bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {#if isSearchingMore}
+            <svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+                fill="none"
+              />
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+            Searching...
+          {:else}
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            Search 50 More
           {/if}
         </button>
       {/if}

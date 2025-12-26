@@ -5,6 +5,7 @@
   import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
   import { onMount, onDestroy } from 'svelte';
   import { getSessionKey } from '$lib/utils/session-manager';
+  import { loadRestoreSearch } from '$lib/utils/filterStorage';
 
   let keyword = '';
   let totalChannelsLimit = 50; // Total channels user wants to find
@@ -48,6 +49,21 @@
 
   // Setup beforeunload listener when component mounts
   onMount(async () => {
+    // Check if we're restoring a search from history
+    const restoreData = loadRestoreSearch();
+    if (restoreData) {
+      console.log('[SearchForm] Restoring search from history:', restoreData);
+      keyword = restoreData.keyword || '';
+
+      // If there's a sessionId, we could load the results from that session
+      // For now, just pre-fill the keyword so user can re-run the search
+      toastStore.show(
+        `Restored search for "${restoreData.keyword}". Click Search to reload results.`,
+        'info',
+        5000
+      );
+    }
+
     // Check if there's a job from a previous session (page was refreshed/closed)
     const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (savedJobId) {
