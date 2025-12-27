@@ -18,7 +18,7 @@
 		"supabase:stop": "supabase stop"
 	},
 	"devDependencies": {
-		"@supabase/supabase-js": "^2.75.0",
+		"@supabase/supabase-js": "^2.89.0",
 		"@sveltejs/adapter-auto": "^6.1.0",
 		"@sveltejs/adapter-vercel": "^6.0.0",
 		"@sveltejs/kit": "^2.43.2",

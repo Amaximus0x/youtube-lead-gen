@@ -36,7 +36,7 @@ function createChannelsStore() {
 
 	return {
 		subscribe,
-		setSearching: (isSearching: boolean) => {
+		setSearching: (isSearching: boolean, keyword?: string, searchLimit?: number) => {
 			update((state) => ({
 				...state,
 				isSearching,
@@ -44,7 +44,10 @@ function createChannelsStore() {
 				// Reset progress and stats when starting a new search
 				searchProgress: isSearching ? 0 : state.searchProgress,
 				statusMessage: isSearching ? '' : state.statusMessage,
-				stats: isSearching ? null : state.stats // Clear old stats when starting new search
+				stats: isSearching ? null : state.stats, // Clear old stats when starting new search
+				// Store keyword and limit when starting a search
+				currentKeyword: keyword !== undefined ? keyword : state.currentKeyword,
+				searchLimit: searchLimit !== undefined ? searchLimit : state.searchLimit
 			}));
 		},
 		setChannels: (

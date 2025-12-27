@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { authStore } from '$lib/stores/authStore';
 
 	interface SearchHistoryItem {
 		id: string;
@@ -28,8 +29,22 @@
 			isLoading = true;
 			error = null;
 
+			// Get user ID if authenticated
+			const auth = $authStore;
+			const userId = auth.user?.id || null;
+
+			// Build query params
+			const params = new URLSearchParams({
+				page: currentPage.toString(),
+				pageSize: pageSize.toString()
+			});
+
+			if (userId) {
+				params.append('userId', userId);
+			}
+
 			const response = await fetch(
-				`/api/youtube/search/history?page=${currentPage}&pageSize=${pageSize}`
+				`/api/youtube/search/history?${params.toString()}`
 			);
 
 			if (!response.ok) {

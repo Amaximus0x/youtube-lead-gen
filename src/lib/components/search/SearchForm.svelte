@@ -6,6 +6,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getSessionKey } from '$lib/utils/session-manager';
   import { loadRestoreSearch } from '$lib/utils/filterStorage';
+  import { authStore } from '$lib/stores/authStore';
 
   let keyword = '';
   let totalChannelsLimit = 50; // Total channels user wants to find
@@ -16,6 +17,17 @@
 
   // Track active job to cancel previous searches
   let activeJobId: string | null = null;
+
+  // Keep local UI state in sync with store
+  $: {
+    const state = $channelsStore;
+    // Only update if we're not manually typing in the keyword field
+    if (state.currentKeyword && !keyword) {
+      keyword = state.currentKeyword;
+    }
+    searchProgress = state.searchProgress;
+    statusMessage = state.statusMessage;
+  }
 
   // Get API URL from environment or use default
   const API_URL = import.meta.env.VITE_PUBLIC_API_URL || 'http://localhost:8090';
@@ -49,6 +61,20 @@
 
   // Setup beforeunload listener when component mounts
   onMount(async () => {
+    // Restore UI state from store if search is already running
+    const currentState = $channelsStore;
+    if (currentState.isSearching || currentState.currentKeyword) {
+      console.log('[SearchForm] Restoring UI state from store:', currentState);
+      keyword = currentState.currentKeyword || keyword;
+      searchProgress = currentState.searchProgress || 0;
+      statusMessage = currentState.statusMessage || '';
+
+      // If there's a limit in the store, restore it too
+      if (currentState.searchLimit) {
+        totalChannelsLimit = currentState.searchLimit;
+      }
+    }
+
     // Check if we're restoring a search from history
     const restoreData = loadRestoreSearch();
     if (restoreData) {
@@ -194,8 +220,8 @@
     searchProgress = 0;
     statusMessage = '';
 
-    // Reset error state and set searching state
-    channelsStore.setSearching(true);
+    // Reset error state and set searching state (store keyword and limit)
+    channelsStore.setSearching(true, keyword.trim(), totalChannelsLimit);
 
     try {
       console.log('[Search] Starting search for:', keyword.trim());
@@ -204,12 +230,18 @@
       const sessionKey = getSessionKey();
       console.log(`[Search] Using session key: ${sessionKey}`);
 
+      // Get user ID if authenticated
+      const auth = $authStore;
+      const userId = auth.user?.id || null;
+      console.log(`[Search] User ID: ${userId || 'anonymous'}`);
+
       const requestBody: SearchRequest = {
         keyword: keyword.trim(),
         page: 1,
         pageSize: totalChannelsLimit, // Request all results at once (user's desired limit)
         limit: totalChannelsLimit, // Total channels to scrape from YouTube
         sessionKey, // Add session key for multi-tab isolation
+        userId, // Add user ID for user-specific searches
       };
 
       const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', requestBody);
@@ -484,10 +516,11 @@
 
         // Progress callback
         onProgress: (progress) => {
-          searchProgress = progress.percentComplete;
-
           // Update status message
-          statusMessage = getStatusMessage(progress.status, null);
+          const message = getStatusMessage(progress.status, null);
+
+          // Update the store (which will update local variables via reactive statement)
+          channelsStore.setProgress(progress.percentComplete, message);
 
           console.log(
             `[Polling] Cycle ${progress.currentCycle}, Poll #${progress.totalPolls}: ` +
@@ -604,8 +637,7 @@
 
         channelsStore.setSearching(false);
         channelsStore.setEnriching(false);
-        searchProgress = 100;
-        statusMessage = data.stats?.message || 'Search complete!';
+        channelsStore.setProgress(100, data.stats?.message || 'Search complete!');
 
         // Clear active job and localStorage since job completed successfully
         activeJobId = null;
