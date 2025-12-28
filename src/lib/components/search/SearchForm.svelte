@@ -111,10 +111,18 @@
 
             console.log('[SearchForm] Restored', channels?.length || 0, 'channels');
 
+            // Ensure stats has the displayed field (fallback to channel count if missing)
+            const restoredStats = {
+              total: stats?.total || channels?.length || 0,
+              filtered: stats?.filtered || channels?.length || 0,
+              displayed: stats?.displayed || channels?.length || 0,
+              keyword: stats?.keyword || keyword
+            };
+
             // Update store with restored results
             channelsStore.setChannels(
               channels || [],
-              stats || { total: 0, filtered: 0, keyword: keyword },
+              restoredStats,
               pagination || {
                 searchSessionId: restoreData.sessionId,
                 hasMore: false,
@@ -252,6 +260,13 @@
       return;
     }
 
+    // Clear saved filters for new search - filters should not persist from previous searches
+    try {
+      sessionStorage.removeItem('youtube_client_filters');
+      console.log('[Search] Cleared saved filters for new search');
+    } catch (error) {
+      console.error('[Search] Error clearing saved filters:', error);
+    }
 
     // If there's an active search, show confirmation dialog
     if (activeJobId) {

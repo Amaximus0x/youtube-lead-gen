@@ -14,6 +14,7 @@
 
 	// Client-side filters (applied after search completes)
 	let clientFilters: ClientFilters = clearAllFilters();
+	let wasSearching = false;
 
 	// Apply filters to channels
 	$: allChannels = $channelsStore.channels;
@@ -22,6 +23,17 @@
 
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
+
+	// Reset filters when a NEW search starts (isSearching goes from false to true)
+	$: {
+		const isSearching = $channelsStore.isSearching;
+		// Detect transition from not searching to searching (new search started)
+		if (isSearching && !wasSearching) {
+			console.log('[FilterReset] New search started, clearing filters');
+			clientFilters = clearAllFilters();
+		}
+		wasSearching = isSearching;
+	}
 
 	// Restore filters from sessionStorage on mount
 	onMount(() => {
@@ -88,7 +100,7 @@
 	</div>
 
 	<!-- Two-Step CTAs -->
-	<div class="flex justify-center gap-4 mb-8">
+	<!-- <div class="flex justify-center gap-4 mb-8">
 		<button
 			class="px-8 py-3 text-lg text-black transition-all btn btn-primary"
 			class:ring-4={activeTab === 'generate'}
@@ -121,10 +133,10 @@
 			</svg>
 			Extract Emails
 		</button>
-	</div>
+	</div> -->
 
 	<!-- Dynamic Content -->
-	{#if activeTab === 'generate'}
+	<!-- {#if activeTab === 'generate'} -->
 		<div class="mb-8">
 			<SearchForm bind:this={searchFormRef} />
 		</div>
@@ -152,7 +164,7 @@
 					{#if !$channelsStore.isSearching && filteredChannels.length > 0}
 						<button
 							on:click={handleExportData}
-							class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+							class="px-4 py-2 text-sm font-medium text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700"
 						>
 							Export {filteredChannels.length} Channel{filteredChannels.length !== 1 ? 's' : ''}
 						</button>
@@ -192,7 +204,7 @@
 				{/if}
 			</div>
 		{/if}
-	{:else}
+	<!-- {:else}
 		<div class="card">
 			<h2 class="mb-6 text-2xl font-bold text-gray-900">Extract Emails from Channels</h2>
 
@@ -237,8 +249,8 @@
 							Export Data (CSV)
 						</button>
 					</div>
-				</div>
-			{:else}
+				</div> -->
+			<!-- {:else}
 				<div class="py-12 text-center text-gray-500">
 					<svg
 						class="w-12 h-12 mx-auto mb-4 text-gray-400"
@@ -256,7 +268,7 @@
 					<p class="mb-2 text-lg">No channels found yet</p>
 					<p>Start by generating leads first, then come back here to extract emails.</p>
 				</div>
-			{/if}
-		</div>
-	{/if}
+			{/if} -->
+		<!-- </div> -->
+	<!-- {/if} -->
 </div>
