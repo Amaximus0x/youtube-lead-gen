@@ -14,7 +14,6 @@
 
 	// Client-side filters (applied after search completes)
 	let clientFilters: ClientFilters = clearAllFilters();
-	let previousSearchState = false;
 
 	// Apply filters to channels
 	$: allChannels = $channelsStore.channels;
@@ -24,13 +23,10 @@
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
 
-	// Reset filters when a NEW search starts (isSearching goes from false to true)
-	$: if ($channelsStore.isSearching && !previousSearchState) {
-		console.log('[FilterReset] New search started, clearing filters');
+	// Reset filters when channels are cleared (new search started)
+	// This works together with sessionStorage.removeItem() in SearchForm.handleSearch()
+	$: if (allChannels.length === 0 && $channelsStore.isSearching) {
 		clientFilters = clearAllFilters();
-		previousSearchState = true;
-	} else if (!$channelsStore.isSearching) {
-		previousSearchState = false;
 	}
 
 	// Restore filters from sessionStorage on mount
