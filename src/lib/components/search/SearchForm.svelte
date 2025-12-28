@@ -18,12 +18,17 @@
   // Track active job to cancel previous searches
   let activeJobId: string | null = null;
 
-  // Keep local UI state in sync with store
+  // Track if we've done the initial keyword sync (to prevent auto-filling after user clears input)
+  let hasInitialKeywordSync = false;
+
+  // Keep local UI state in sync with store (but don't override user input)
   $: {
     const state = $channelsStore;
-    // Only update if we're not manually typing in the keyword field
-    if (state.currentKeyword && !keyword) {
+    // Only sync keyword on the FIRST time we see a keyword from the store
+    // This prevents auto-filling when user is trying to clear the input
+    if (state.currentKeyword && !keyword && !hasInitialKeywordSync) {
       keyword = state.currentKeyword;
+      hasInitialKeywordSync = true;
     }
     searchProgress = state.searchProgress;
     statusMessage = state.statusMessage;
@@ -81,13 +86,78 @@
       console.log('[SearchForm] Restoring search from history:', restoreData);
       keyword = restoreData.keyword || '';
 
-      // If there's a sessionId, we could load the results from that session
-      // For now, just pre-fill the keyword so user can re-run the search
-      toastStore.show(
-        `Restored search for "${restoreData.keyword}". Click Search to reload results.`,
-        'info',
-        5000
-      );
+      // Restore the search limit if provided
+      if (restoreData.searchLimit) {
+        totalChannelsLimit = restoreData.searchLimit;
+      }
+
+      // If we should restore full results (not just keyword)
+      if (restoreData.restoreResults && restoreData.sessionId) {
+        // Import the restore function
+        const { restoreSearchSession } = await import('$lib/api/client');
+
+        try {
+          console.log('[SearchForm] Loading results from session:', restoreData.sessionId);
+
+          // Set loading state
+          channelsStore.setSearching(true, keyword, totalChannelsLimit);
+          channelsStore.setProgress(10, 'Restoring search results...');
+
+          // Load results from backend
+          const response = await restoreSearchSession(restoreData.sessionId, totalChannelsLimit);
+
+          if (response.status === 'success' && response.data) {
+            const { channels, stats, pagination } = response.data;
+
+            console.log('[SearchForm] Restored', channels?.length || 0, 'channels');
+
+            // Update store with restored results
+            channelsStore.setChannels(
+              channels || [],
+              stats || { total: 0, filtered: 0, keyword: keyword },
+              pagination || {
+                searchSessionId: restoreData.sessionId,
+                hasMore: false,
+                currentPage: 1,
+                pageSize: totalChannelsLimit,
+                totalChannels: channels?.length || 0,
+                totalPages: 1
+              },
+              totalChannelsLimit,
+              restoreData.filters || undefined
+            );
+
+            channelsStore.setProgress(100, 'Search restored successfully!');
+
+            // Show success toast
+            toastStore.show(
+              `Restored ${channels?.length || 0} channels for "${keyword}"`,
+              'success',
+              5000
+            );
+          } else {
+            throw new Error(response.message || 'Failed to restore search results');
+          }
+        } catch (error) {
+          console.error('[SearchForm] Error restoring search:', error);
+
+          // Fall back to just pre-filling the keyword
+          channelsStore.setSearching(false);
+
+          toastStore.show(
+            `Failed to restore search results. You can search again for "${keyword}".`,
+            'error',
+            5000
+          );
+        }
+      } else {
+        // Old behavior: just pre-fill keyword
+        toastStore.show(
+          `Restored search for "${restoreData.keyword}". Click Search to reload results.`,
+          'info',
+          5000
+        );
+      }
     }
 
     // Check if there's a job from a previous session (page was refreshed/closed)

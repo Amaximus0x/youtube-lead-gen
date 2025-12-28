@@ -8,7 +8,8 @@
 		keyword: string;
 		filters: Record<string, any> | null;
 		clientFilters: Record<string, any> | null;
-		totalChannels: number;
+		searchLimit: number; // Original search limit requested by user
+		totalChannels: number; // Actual channels found and stored
 		channelsWithEmail: number;
 		channelsWithSocial: number;
 		status: 'active' | 'completed' | 'expired' | 'cancelled';
@@ -74,6 +75,8 @@
 			keyword: item.keyword,
 			filters: item.filters,
 			clientFilters: item.clientFilters,
+			searchLimit: item.searchLimit,
+			restoreResults: true, // Flag to trigger full restore with results
 		}));
 		goto('/');
 	}
@@ -126,11 +129,45 @@
 </script>
 
 <div class="mx-auto max-w-7xl px-4 py-8">
+	<!-- Login Prompt for Anonymous Users -->
+	{#if !$authStore.user && !$authStore.loading}
+		<div class="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
+			<div class="flex items-start">
+				<div class="flex-shrink-0">
+					<svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+					</svg>
+				</div>
+				<div class="ml-3 flex-1">
+					<h3 class="text-sm font-medium text-blue-800">Sign in to view your personal search history</h3>
+					<div class="mt-2 text-sm text-blue-700">
+						<p>You're currently viewing all searches from all users. To see only your searches, please sign in or create an account.</p>
+					</div>
+					<div class="mt-4">
+						<a
+							href="/"
+							class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition"
+						>
+							<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+							</svg>
+							Go to Home & Sign In
+						</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<div class="mb-8 flex items-center justify-between">
 		<div>
 			<h1 class="text-4xl font-bold text-gray-900">Search History</h1>
 			<p class="mt-2 text-lg text-gray-600">
-				Review and restore your previous searches
+				{#if $authStore.user}
+					Review and restore your previous searches
+				{:else}
+					Browsing all searches
+				{/if}
 			</p>
 		</div>
 		<a
@@ -197,9 +234,11 @@
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								Status
 							</th>
-							<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Total Channels
-							</th>
+							{#if $authStore.user}
+								<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Limit
+								</th>
+							{/if}
 							<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
 								With Email
 							</th>
@@ -209,9 +248,11 @@
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								Filters
 							</th>
-							<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Action
-							</th>
+							{#if $authStore.user}
+								<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Action
+								</th>
+							{/if}
 						</tr>
 					</thead>
 					<tbody class="bg-white divide-y divide-gray-200">
@@ -228,9 +269,11 @@
 										{item.status}
 									</span>
 								</td>
-								<td class="px-6 py-4 whitespace-nowrap text-right">
-									<div class="text-sm text-gray-900">{item.totalChannels}</div>
-								</td>
+								{#if $authStore.user}
+									<td class="px-6 py-4 whitespace-nowrap text-right">
+										<div class="text-sm text-gray-900">{item.searchLimit || 'N/A'}</div>
+									</td>
+								{/if}
 								<td class="px-6 py-4 whitespace-nowrap text-right">
 									<div class="text-sm font-medium text-green-600">{item.channelsWithEmail}</div>
 								</td>
@@ -259,14 +302,16 @@
 										{/if}
 									</div>
 								</td>
-								<td class="px-6 py-4 whitespace-nowrap text-right">
-									<button
-										on:click={() => handleRestoreSearch(item)}
-										class="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition"
-									>
-										Restore
-									</button>
-								</td>
+								{#if $authStore.user}
+									<td class="px-6 py-4 whitespace-nowrap text-right">
+										<button
+											on:click={() => handleRestoreSearch(item)}
+											class="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition"
+										>
+											Restore
+										</button>
+									</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>

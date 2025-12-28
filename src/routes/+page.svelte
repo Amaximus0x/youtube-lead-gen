@@ -6,6 +6,8 @@
 	import { exportChannelsToCSV } from '$lib/utils/export';
 	import { applyClientFilters, clearAllFilters, getFilterStats } from '$lib/utils/clientFilters';
 	import type { ClientFilters } from '$lib/utils/clientFilters';
+	import { onMount } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 
 	let activeTab: 'generate' | 'extract' = 'generate';
 	let searchFormRef: any;
@@ -21,6 +23,33 @@
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
 
+	// Restore filters from sessionStorage on mount
+	onMount(() => {
+		try {
+			const savedFilters = sessionStorage.getItem('youtube_client_filters');
+			if (savedFilters) {
+				const parsed = JSON.parse(savedFilters);
+				clientFilters = { ...clearAllFilters(), ...parsed };
+				console.log('[FilterPersistence] Restored filters:', clientFilters);
+			}
+		} catch (error) {
+			console.error('[FilterPersistence] Error loading filters:', error);
+		}
+	});
+
+	// Save filters before navigating away
+	beforeNavigate(() => {
+		try {
+			// Only save if there are results (filters are meaningful)
+			if (hasResults) {
+				sessionStorage.setItem('youtube_client_filters', JSON.stringify(clientFilters));
+				console.log('[FilterPersistence] Saved filters before navigation:', clientFilters);
+			}
+		} catch (error) {
+			console.error('[FilterPersistence] Error saving filters:', error);
+		}
+	});
+
 	function handleExportData() {
 		// Export filtered channels
 		exportChannelsToCSV(filteredChannels);
@@ -28,10 +57,24 @@
 
 	function handleFilterChange(event: CustomEvent<ClientFilters>) {
 		clientFilters = event.detail;
+		// Auto-save filters whenever they change
+		try {
+			if (hasResults) {
+				sessionStorage.setItem('youtube_client_filters', JSON.stringify(clientFilters));
+			}
+		} catch (error) {
+			console.error('[FilterPersistence] Error auto-saving filters:', error);
+		}
 	}
 
 	function handleClearFilters() {
 		clientFilters = clearAllFilters();
+		// Clear saved filters when user explicitly clears them
+		try {
+			sessionStorage.removeItem('youtube_client_filters');
+		} catch (error) {
+			console.error('[FilterPersistence] Error clearing saved filters:', error);
+		}
 	}
 </script>
 
