@@ -23,12 +23,6 @@
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
 
-	// Reset filters when channels are cleared (new search started)
-	// This works together with sessionStorage.removeItem() in SearchForm.handleSearch()
-	$: if (allChannels.length === 0 && $channelsStore.isSearching) {
-		clientFilters = clearAllFilters();
-	}
-
 	// Restore filters from sessionStorage on mount
 	onMount(() => {
 		try {
