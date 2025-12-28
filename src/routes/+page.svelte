@@ -13,7 +13,16 @@
 	let searchFormRef: any;
 
 	// Client-side filters (applied after search completes)
-	let clientFilters: ClientFilters = clearAllFilters();
+	let clientFilters: ClientFilters = {
+		subscriberRanges: [],
+		viewRanges: [],
+		avgViewRanges: [],
+		countries: [],
+		uploadDateRange: '',
+		searchQuery: '',
+		hasEmail: false,
+		hasSocialLinks: false,
+	};
 
 	// Apply filters to channels
 	$: allChannels = $channelsStore.channels;
@@ -29,7 +38,17 @@
 			const savedFilters = sessionStorage.getItem('youtube_client_filters');
 			if (savedFilters) {
 				const parsed = JSON.parse(savedFilters);
-				clientFilters = { ...clearAllFilters(), ...parsed };
+				clientFilters = {
+					subscriberRanges: [],
+					viewRanges: [],
+					avgViewRanges: [],
+					countries: [],
+					uploadDateRange: '',
+					searchQuery: '',
+					hasEmail: false,
+					hasSocialLinks: false,
+					...parsed
+				};
 				console.log('[FilterPersistence] Restored filters:', clientFilters);
 			}
 		} catch (error) {
