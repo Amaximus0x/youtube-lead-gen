@@ -4,7 +4,7 @@
 	import FilterPanel from '$lib/components/results/FilterPanel.svelte';
 	import { channelsStore } from '$lib/stores/channels';
 	import { exportChannelsToCSV } from '$lib/utils/export';
-	import { applyClientFilters, clearAllFilters, getFilterStats } from '$lib/utils/clientFilters';
+	import * as ClientFilterUtils from '$lib/utils/clientFilters';
 	import type { ClientFilters } from '$lib/utils/clientFilters';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
@@ -24,10 +24,23 @@
 		hasSocialLinks: false,
 	};
 
-	// Apply filters to channels
-	$: allChannels = $channelsStore.channels;
-	$: filteredChannels = applyClientFilters(allChannels, clientFilters);
-	$: filterStats = getFilterStats(allChannels, clientFilters);
+	// Apply filters to channels - using derived state instead of reactive statements with imports
+	let allChannels: typeof $channelsStore.channels = [];
+	let filteredChannels: typeof $channelsStore.channels = [];
+	let filterStats = {
+		total: 0,
+		filtered: 0,
+		hiddenByFilters: 0,
+		percentage: 0,
+		hasActiveFilters: false
+	};
+
+	// Update derived state when dependencies change
+	$: {
+		allChannels = $channelsStore.channels;
+		filteredChannels = ClientFilterUtils.applyClientFilters(allChannels, clientFilters);
+		filterStats = ClientFilterUtils.getFilterStats(allChannels, clientFilters);
+	}
 
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
@@ -87,7 +100,7 @@
 	}
 
 	function handleClearFilters() {
-		clientFilters = clearAllFilters();
+		clientFilters = ClientFilterUtils.clearAllFilters();
 		// Clear saved filters when user explicitly clears them
 		try {
 			sessionStorage.removeItem('youtube_client_filters');
