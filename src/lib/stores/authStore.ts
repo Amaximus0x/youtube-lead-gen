@@ -114,8 +114,13 @@ function createAuthStore() {
 		 * Send password reset email
 		 */
 		resetPassword: async (email: string) => {
+			// Determine redirect URL - fallback for SSR environments
+			const redirectTo = typeof window !== 'undefined'
+				? `${window.location.origin}/reset-password`
+				: '/reset-password'; // Fallback for SSR
+
 			const { error } = await supabase.auth.resetPasswordForEmail(email, {
-				redirectTo: `${window.location.origin}/reset-password`
+				redirectTo
 			});
 
 			if (error) {
