@@ -45,7 +45,7 @@
 			}
 
 			const response = await fetch(
-				`/api/youtube/search/history?${params.toString()}`
+				`/api/history?${params.toString()}`
 			);
 
 			if (!response.ok) {
