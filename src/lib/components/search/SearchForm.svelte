@@ -5,6 +5,8 @@
   import type { ApiResponse, SearchResponse, SearchRequest } from '$lib/types/api';
   import { onMount, onDestroy } from 'svelte';
   import { getSessionKey } from '$lib/utils/session-manager';
+  import { loadRestoreSearch } from '$lib/utils/filterStorage';
+  import { authStore } from '$lib/stores/authStore';
 
   let keyword = '';
   let totalChannelsLimit = 50; // Total channels user wants to find
@@ -15,6 +17,22 @@
 
   // Track active job to cancel previous searches
   let activeJobId: string | null = null;
+
+  // Track if we've done the initial keyword sync (to prevent auto-filling after user clears input)
+  let hasInitialKeywordSync = false;
+
+  // Keep local UI state in sync with store (but don't override user input)
+  $: {
+    const state = $channelsStore;
+    // Only sync keyword on the FIRST time we see a keyword from the store
+    // This prevents auto-filling when user is trying to clear the input
+    if (state.currentKeyword && !keyword && !hasInitialKeywordSync) {
+      keyword = state.currentKeyword;
+      hasInitialKeywordSync = true;
+    }
+    searchProgress = state.searchProgress;
+    statusMessage = state.statusMessage;
+  }
 
   // Get API URL from environment or use default
   const API_URL = import.meta.env.VITE_PUBLIC_API_URL || 'http://localhost:8090';
@@ -48,6 +66,108 @@
 
   // Setup beforeunload listener when component mounts
   onMount(async () => {
+    // Restore UI state from store if search is already running
+    const currentState = $channelsStore;
+    if (currentState.isSearching || currentState.currentKeyword) {
+      console.log('[SearchForm] Restoring UI state from store:', currentState);
+      keyword = currentState.currentKeyword || keyword;
+      searchProgress = currentState.searchProgress || 0;
+      statusMessage = currentState.statusMessage || '';
+
+      // If there's a limit in the store, restore it too
+      if (currentState.searchLimit) {
+        totalChannelsLimit = currentState.searchLimit;
+      }
+    }
+
+    // Check if we're restoring a search from history
+    const restoreData = loadRestoreSearch();
+    if (restoreData) {
+      console.log('[SearchForm] Restoring search from history:', restoreData);
+      keyword = restoreData.keyword || '';
+
+      // Restore the search limit if provided
+      if (restoreData.searchLimit) {
+        totalChannelsLimit = restoreData.searchLimit;
+      }
+
+      // If we should restore full results (not just keyword)
+      if (restoreData.restoreResults && restoreData.sessionId) {
+        // Import the restore function
+        const { restoreSearchSession } = await import('$lib/api/client');
+
+        try {
+          console.log('[SearchForm] Loading results from session:', restoreData.sessionId);
+
+          // Set loading state
+          channelsStore.setSearching(true, keyword, totalChannelsLimit);
+          channelsStore.setProgress(10, 'Restoring search results...');
+
+          // Load results from backend
+          const response = await restoreSearchSession(restoreData.sessionId, totalChannelsLimit);
+
+          if (response.status === 'success' && response.data) {
+            const { channels, stats, pagination } = response.data;
+
+            console.log('[SearchForm] Restored', channels?.length || 0, 'channels');
+
+            // Ensure stats has the displayed field (fallback to channel count if missing)
+            const restoredStats = {
+              total: stats?.total || channels?.length || 0,
+              filtered: stats?.filtered || channels?.length || 0,
+              displayed: stats?.displayed || channels?.length || 0,
+              keyword: stats?.keyword || keyword
+            };
+
+            // Update store with restored results
+            channelsStore.setChannels(
+              channels || [],
+              restoredStats,
+              pagination || {
+                searchSessionId: restoreData.sessionId,
+                hasMore: false,
+                currentPage: 1,
+                pageSize: totalChannelsLimit,
+                totalChannels: channels?.length || 0,
+                totalPages: 1
+              },
+              totalChannelsLimit,
+              restoreData.filters || undefined
+            );
+
+            channelsStore.setProgress(100, 'Search restored successfully!');
+
+            // Show success toast
+            toastStore.show(
+              `Restored ${channels?.length || 0} channels for "${keyword}"`,
+              'success',
+              5000
+            );
+          } else {
+            throw new Error(response.message || 'Failed to restore search results');
+          }
+        } catch (error) {
+          console.error('[SearchForm] Error restoring search:', error);
+
+          // Fall back to just pre-filling the keyword
+          channelsStore.setSearching(false);
+
+          toastStore.show(
+            `Failed to restore search results. You can search again for "${keyword}".`,
+            'error',
+            5000
+          );
+        }
+      } else {
+        // Old behavior: just pre-fill keyword
+        toastStore.show(
+          `Restored search for "${restoreData.keyword}". Click Search to reload results.`,
+          'info',
+          5000
+        );
+      }
+    }
+
     // Check if there's a job from a previous session (page was refreshed/closed)
     const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (savedJobId) {
@@ -140,6 +260,13 @@
       return;
     }
 
+    // Clear saved filters for new search - filters should not persist from previous searches
+    try {
+      sessionStorage.removeItem('youtube_client_filters');
+      console.log('[Search] Cleared saved filters for new search');
+    } catch (error) {
+      console.error('[Search] Error clearing saved filters:', error);
+    }
 
     // If there's an active search, show confirmation dialog
     if (activeJobId) {
@@ -178,8 +305,8 @@
     searchProgress = 0;
     statusMessage = '';
 
-    // Reset error state and set searching state
-    channelsStore.setSearching(true);
+    // Reset error state and set searching state (store keyword and limit)
+    channelsStore.setSearching(true, keyword.trim(), totalChannelsLimit);
 
     try {
       console.log('[Search] Starting search for:', keyword.trim());
@@ -188,12 +315,18 @@
       const sessionKey = getSessionKey();
       console.log(`[Search] Using session key: ${sessionKey}`);
 
+      // Get user ID if authenticated
+      const auth = $authStore;
+      const userId = auth.user?.id || null;
+      console.log(`[Search] User ID: ${userId || 'anonymous'}`);
+
       const requestBody: SearchRequest = {
         keyword: keyword.trim(),
         page: 1,
         pageSize: totalChannelsLimit, // Request all results at once (user's desired limit)
         limit: totalChannelsLimit, // Total channels to scrape from YouTube
         sessionKey, // Add session key for multi-tab isolation
+        userId, // Add user ID for user-specific searches
       };
 
       const response = await apiPost<ApiResponse<SearchResponse>>('/youtube/search', requestBody);
@@ -468,10 +601,11 @@
 
         // Progress callback
         onProgress: (progress) => {
-          searchProgress = progress.percentComplete;
-
           // Update status message
-          statusMessage = getStatusMessage(progress.status, null);
+          const message = getStatusMessage(progress.status, null);
+
+          // Update the store (which will update local variables via reactive statement)
+          channelsStore.setProgress(progress.percentComplete, message);
 
           console.log(
             `[Polling] Cycle ${progress.currentCycle}, Poll #${progress.totalPolls}: ` +
@@ -487,8 +621,12 @@
             return;
           }
 
-          // Update progress
-          if (data.progress !== undefined) {
+          // IMPORTANT: Don't update progress from backend data.progress
+          // The backend's progress values are hardcoded (10, 20, 30, 100) and don't reflect
+          // actual enrichment progress. The onProgress callback already calculates accurate
+          // progress based on channelsFound / targetLimit.
+          // Only use backend progress when status is 'completed' to ensure we hit 100%
+          if (data.status === 'completed' && data.progress !== undefined) {
             searchProgress = data.progress;
             channelsStore.setProgress(data.progress, data.message || statusMessage);
           }
@@ -584,8 +722,7 @@
 
         channelsStore.setSearching(false);
         channelsStore.setEnriching(false);
-        searchProgress = 100;
-        statusMessage = data.stats?.message || 'Search complete!';
+        channelsStore.setProgress(100, data.stats?.message || 'Search complete!');
 
         // Clear active job and localStorage since job completed successfully
         activeJobId = null;

@@ -4,22 +4,83 @@
 	import FilterPanel from '$lib/components/results/FilterPanel.svelte';
 	import { channelsStore } from '$lib/stores/channels';
 	import { exportChannelsToCSV } from '$lib/utils/export';
-	import { applyClientFilters, clearAllFilters, getFilterStats } from '$lib/utils/clientFilters';
+	import * as ClientFilterUtils from '$lib/utils/clientFilters';
 	import type { ClientFilters } from '$lib/utils/clientFilters';
+	import { onMount } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 
 	let activeTab: 'generate' | 'extract' = 'generate';
 	let searchFormRef: any;
 
 	// Client-side filters (applied after search completes)
-	let clientFilters: ClientFilters = clearAllFilters();
+	let clientFilters: ClientFilters = {
+		subscriberRanges: [],
+		viewRanges: [],
+		avgViewRanges: [],
+		countries: [],
+		uploadDateRange: '',
+		searchQuery: '',
+		hasEmail: false,
+		hasSocialLinks: false,
+	};
 
-	// Apply filters to channels
-	$: allChannels = $channelsStore.channels;
-	$: filteredChannels = applyClientFilters(allChannels, clientFilters);
-	$: filterStats = getFilterStats(allChannels, clientFilters);
+	// Apply filters to channels - using derived state instead of reactive statements with imports
+	let allChannels: typeof $channelsStore.channels = [];
+	let filteredChannels: typeof $channelsStore.channels = [];
+	let filterStats = {
+		total: 0,
+		filtered: 0,
+		hiddenByFilters: 0,
+		percentage: 0,
+		hasActiveFilters: false
+	};
+
+	// Update derived state when dependencies change
+	$: {
+		allChannels = $channelsStore.channels;
+		filteredChannels = ClientFilterUtils.applyClientFilters(allChannels, clientFilters);
+		filterStats = ClientFilterUtils.getFilterStats(allChannels, clientFilters);
+	}
 
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
+
+	// Restore filters from sessionStorage on mount
+	onMount(() => {
+		try {
+			const savedFilters = sessionStorage.getItem('youtube_client_filters');
+			if (savedFilters) {
+				const parsed = JSON.parse(savedFilters);
+				clientFilters = {
+					subscriberRanges: [],
+					viewRanges: [],
+					avgViewRanges: [],
+					countries: [],
+					uploadDateRange: '',
+					searchQuery: '',
+					hasEmail: false,
+					hasSocialLinks: false,
+					...parsed
+				};
+				console.log('[FilterPersistence] Restored filters:', clientFilters);
+			}
+		} catch (error) {
+			console.error('[FilterPersistence] Error loading filters:', error);
+		}
+	});
+
+	// Save filters before navigating away
+	beforeNavigate(() => {
+		try {
+			// Only save if there are results (filters are meaningful)
+			if (hasResults) {
+				sessionStorage.setItem('youtube_client_filters', JSON.stringify(clientFilters));
+				console.log('[FilterPersistence] Saved filters before navigation:', clientFilters);
+			}
+		} catch (error) {
+			console.error('[FilterPersistence] Error saving filters:', error);
+		}
+	});
 
 	function handleExportData() {
 		// Export filtered channels
@@ -28,10 +89,24 @@
 
 	function handleFilterChange(event: CustomEvent<ClientFilters>) {
 		clientFilters = event.detail;
+		// Auto-save filters whenever they change
+		try {
+			if (hasResults) {
+				sessionStorage.setItem('youtube_client_filters', JSON.stringify(clientFilters));
+			}
+		} catch (error) {
+			console.error('[FilterPersistence] Error auto-saving filters:', error);
+		}
 	}
 
 	function handleClearFilters() {
-		clientFilters = clearAllFilters();
+		clientFilters = ClientFilterUtils.clearAllFilters();
+		// Clear saved filters when user explicitly clears them
+		try {
+			sessionStorage.removeItem('youtube_client_filters');
+		} catch (error) {
+			console.error('[FilterPersistence] Error clearing saved filters:', error);
+		}
 	}
 </script>
 
@@ -45,7 +120,7 @@
 	</div>
 
 	<!-- Two-Step CTAs -->
-	<div class="flex justify-center gap-4 mb-8">
+	<!-- <div class="flex justify-center gap-4 mb-8">
 		<button
 			class="px-8 py-3 text-lg text-black transition-all btn btn-primary"
 			class:ring-4={activeTab === 'generate'}
@@ -78,10 +153,10 @@
 			</svg>
 			Extract Emails
 		</button>
-	</div>
+	</div> -->
 
 	<!-- Dynamic Content -->
-	{#if activeTab === 'generate'}
+	<!-- {#if activeTab === 'generate'} -->
 		<div class="mb-8">
 			<SearchForm bind:this={searchFormRef} />
 		</div>
@@ -109,7 +184,7 @@
 					{#if !$channelsStore.isSearching && filteredChannels.length > 0}
 						<button
 							on:click={handleExportData}
-							class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+							class="px-4 py-2 text-sm font-medium text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700"
 						>
 							Export {filteredChannels.length} Channel{filteredChannels.length !== 1 ? 's' : ''}
 						</button>
@@ -149,7 +224,7 @@
 				{/if}
 			</div>
 		{/if}
-	{:else}
+	<!-- {:else}
 		<div class="card">
 			<h2 class="mb-6 text-2xl font-bold text-gray-900">Extract Emails from Channels</h2>
 
@@ -194,8 +269,8 @@
 							Export Data (CSV)
 						</button>
 					</div>
-				</div>
-			{:else}
+				</div> -->
+			<!-- {:else}
 				<div class="py-12 text-center text-gray-500">
 					<svg
 						class="w-12 h-12 mx-auto mb-4 text-gray-400"
@@ -213,7 +288,7 @@
 					<p class="mb-2 text-lg">No channels found yet</p>
 					<p>Start by generating leads first, then come back here to extract emails.</p>
 				</div>
-			{/if}
-		</div>
-	{/if}
+			{/if} -->
+		<!-- </div> -->
+	<!-- {/if} -->
 </div>
