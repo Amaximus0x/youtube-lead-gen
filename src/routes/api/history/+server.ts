@@ -9,9 +9,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		const pageSize = url.searchParams.get("pageSize") || "20";
 		const userId = url.searchParams.get("userId") || undefined;
 
-		console.log(`[API] Fetching search history: page=${page}, pageSize=${pageSize}`);
+		console.log(`[API] Fetching search history: page=${page}, pageSize=${pageSize}, userId=${userId}`);
 
 		const backendUrl = PUBLIC_API_URL || "http://localhost:8090";
+		console.log(`[API] Backend URL from env: ${backendUrl}`);
 
 		const queryParams = new URLSearchParams({
 			page,
@@ -22,8 +23,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			queryParams.append("userId", userId);
 		}
 
+		const fullUrl = `${backendUrl}/youtube/search-history?${queryParams.toString()}`;
+		console.log(`[API] Full backend URL: ${fullUrl}`);
+
 		const backendResponse = await fetch(
-			`${backendUrl}/youtube/search-history?${queryParams.toString()}`,
+			fullUrl,
 			{
 				method: "GET",
 				headers: {
