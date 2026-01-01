@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from "@sveltejs/kit";
-import { PUBLIC_API_URL } from "$env/static/public";
+import { env } from "$env/dynamic/public";
 
 // API endpoint for fetching search history
 // Simplified route to avoid nested path issues
@@ -11,9 +11,9 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		console.log(`[API] Fetching search history: page=${page}, pageSize=${pageSize}, userId=${userId}`);
 
-		// TEMPORARY: Hardcode for debugging
-		const backendUrl = PUBLIC_API_URL || "https://api.youversity.io";
-		console.log(`[API] PUBLIC_API_URL value: "${PUBLIC_API_URL}"`);
+		// Use dynamic env for runtime access to environment variables
+		const backendUrl = env.PUBLIC_API_URL || "https://api.youversity.io";
+		console.log(`[API] PUBLIC_API_URL value: "${env.PUBLIC_API_URL}"`);
 		console.log(`[API] Backend URL (with fallback): ${backendUrl}`);
 
 		const queryParams = new URLSearchParams({

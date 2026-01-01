@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from "@sveltejs/kit";
-import { PUBLIC_API_URL } from "$env/static/public";
+import { env } from "$env/dynamic/public";
 
 // API endpoint for fetching search history
 export const GET: RequestHandler = async ({ url }) => {
@@ -10,8 +10,8 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		console.log(`[API OLD] Fetching search history: page=${page}, pageSize=${pageSize}, userId=${userId}`);
 
-		const backendUrl = PUBLIC_API_URL || "http://localhost:8090";
-		console.log(`[API OLD] PUBLIC_API_URL from env: "${PUBLIC_API_URL}"`);
+		const backendUrl = env.PUBLIC_API_URL || "https://api.youversity.io";
+		console.log(`[API OLD] PUBLIC_API_URL from env: "${env.PUBLIC_API_URL}"`);
 		console.log(`[API OLD] Backend URL (with fallback): ${backendUrl}`);
 
 		const queryParams = new URLSearchParams({
