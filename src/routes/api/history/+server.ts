@@ -11,8 +11,10 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		console.log(`[API] Fetching search history: page=${page}, pageSize=${pageSize}, userId=${userId}`);
 
-		const backendUrl = PUBLIC_API_URL || "http://localhost:8090";
-		console.log(`[API] Backend URL from env: ${backendUrl}`);
+		// TEMPORARY: Hardcode for debugging
+		const backendUrl = PUBLIC_API_URL || "https://api.youversity.io";
+		console.log(`[API] PUBLIC_API_URL value: "${PUBLIC_API_URL}"`);
+		console.log(`[API] Backend URL (with fallback): ${backendUrl}`);
 
 		const queryParams = new URLSearchParams({
 			page,
