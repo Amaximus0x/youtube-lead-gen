@@ -103,8 +103,8 @@
           channelsStore.setSearching(true, keyword, totalChannelsLimit);
           channelsStore.setProgress(10, 'Restoring search results...');
 
-          // Load results from backend
-          const response = await restoreSearchSession(restoreData.sessionId, totalChannelsLimit);
+          // Load results from backend (pass keyword as fallback for expired sessions)
+          const response = await restoreSearchSession(restoreData.sessionId, totalChannelsLimit, keyword);
 
           if (response.status === 'success' && response.data) {
             const { channels, stats, pagination } = response.data;
@@ -152,11 +152,23 @@
           // Fall back to just pre-filling the keyword
           channelsStore.setSearching(false);
 
-          toastStore.show(
-            `Failed to restore search results. You can search again for "${keyword}".`,
-            'error',
-            5000
-          );
+          // Check if it's a session expiration error
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const isSessionExpired = errorMessage.includes('not found') || errorMessage.includes('expired') || errorMessage.includes('404');
+
+          if (isSessionExpired) {
+            toastStore.show(
+              `Search session expired. Please click "Search Channels" to search again for "${keyword}".`,
+              'warning',
+              7000
+            );
+          } else {
+            toastStore.show(
+              `Failed to restore search results. You can search again for "${keyword}".`,
+              'error',
+              5000
+            );
+          }
         }
       } else {
         // Old behavior: just pre-fill keyword

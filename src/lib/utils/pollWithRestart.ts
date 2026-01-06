@@ -152,11 +152,15 @@ export async function pollWithRestart(config: PollConfig): Promise<PollResult> {
           // Store final data
           finalData = data;
 
-          // Check if job is complete
-          if (data.status === 'completed') {
+          // Check if job is complete (either status is 'completed' OR isComplete flag is true)
+          // The backend sets isComplete=true when target is reached, even before changing status to 'completed'
+          const isJobComplete = data.status === 'completed' || data.isComplete === true;
+
+          if (isJobComplete) {
             const duration = Date.now() - startTime;
             console.log('\n═══════════════════════════════════════════════════════════');
             console.log(`[PollRestart] ✅ Job completed successfully!`);
+            console.log(`[PollRestart] Completion detected via: ${data.status === 'completed' ? 'status=completed' : 'isComplete=true'}`);
             console.log(`[PollRestart] Found: ${totalChannelsFound} channels`);
             console.log(`[PollRestart] Duration: ${(duration / 1000).toFixed(1)}s`);
             console.log(`[PollRestart] Total polls: ${totalPolls}`);

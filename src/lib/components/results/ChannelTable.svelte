@@ -69,7 +69,10 @@
   }
 
   /**
-   * Search 50 More - Continue search with continuation token
+   * Search 50 More - Comprehensive function that:
+   * 1. Loads enriched channels from database (if any remaining)
+   * 2. Enriches unscraped channels from database (if any)
+   * 3. Scrapes new channels from YouTube (if needed to reach 50)
    */
   async function handleSearchMore() {
     if (!pagination || !pagination.searchSessionId) {
@@ -78,41 +81,237 @@
       return;
     }
 
+    if (!searchFormHandlers) {
+      console.error('[SearchMore] Missing searchFormHandlers');
+      showToastMessage('Unable to search more: handlers not available');
+      return;
+    }
+
     isSearchingMore = true;
+    let totalNewChannels = 0;
 
     try {
-      console.log(`[SearchMore] Requesting 50 more channels for session ${pagination.searchSessionId}`);
+      console.log(`[SearchMore] Starting comprehensive search for session ${pagination.searchSessionId}`);
 
-      const response = await fetch(`/api/youtube/search/continue/${pagination.searchSessionId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          additionalChannels: 50,
-        }),
-      });
+      // Step 1: Load enriched channels from database that haven't been displayed yet
+      if (stats && stats.filtered > displayChannels.length) {
+        const remainingInDb = stats.filtered - displayChannels.length;
+        const toLoad = Math.min(remainingInDb, 50);
 
-      if (!response.ok) {
-        throw new Error('Failed to search more channels');
+        console.log(`[SearchMore] Step 1: Loading ${toLoad} enriched channels from database`);
+
+        try {
+          const offset = displayChannels.length;
+          const data = await searchFormHandlers.handleLoadMoreChannels(
+            pagination.searchSessionId,
+            offset,
+            toLoad
+          );
+
+          if (data && data.channels && data.channels.length > 0) {
+            console.log(`[SearchMore] Loaded ${data.channels.length} enriched channels from DB`);
+
+            channelsStore.appendChannels(
+              data.channels,
+              {
+                ...stats,
+                displayed: displayChannels.length + data.channels.length,
+              },
+              {
+                ...pagination,
+                hasMore: data.hasMore,
+              }
+            );
+
+            totalNewChannels += data.channels.length;
+
+            // If we got 50 channels, we're done
+            if (totalNewChannels >= 50) {
+              showToastMessage(`Loaded ${totalNewChannels} channels from database!`);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('[SearchMore] Error loading from database:', error);
+          // Continue to next step even if this fails
+        }
       }
 
-      const data = await response.json();
+      // Step 2: Enrich unscraped channels from database (channels without video data)
+      // Note: This enriches existing channels, doesn't add new ones to the total count
+      const channelsNeedingEnrichment = displayChannels.filter(
+        (ch) => !ch.lastPostedVideoDate || !ch.avgRecentViews
+      );
 
-      if (data.success && data.channels) {
-        console.log(`[SearchMore] Received ${data.channels.length} new channels`);
+      if (channelsNeedingEnrichment.length > 0 && totalNewChannels < 50) {
+        const toEnrich = Math.min(channelsNeedingEnrichment.length, 10); // Limit to 10 to avoid long wait times
+        console.log(`[SearchMore] Step 2: Enriching ${toEnrich} channels with video data`);
 
-        // Append new channels to store
-        channelsStore.appendChannels(data.channels, data.stats, data.pagination);
+        try {
+          const channelIds = channelsNeedingEnrichment.slice(0, toEnrich).map((ch) => ch.channelId);
 
-        showToastMessage(`Found ${data.channels.length} more channels!`);
+          showToastMessage(`Enriching ${channelIds.length} channels... This may take a moment.`, 5000);
+
+          await searchFormHandlers.handleEnrichVideoData(channelIds);
+
+          // Fetch updated data
+          const updatedData = await searchFormHandlers.handleLoadMoreChannels(
+            pagination.searchSessionId,
+            0,
+            displayChannels.length
+          );
+
+          if (updatedData && updatedData.channels) {
+            channelsStore.setChannels(
+              updatedData.channels,
+              stats,
+              pagination,
+              searchLimit,
+              searchFilters
+            );
+
+            console.log(`[SearchMore] Enriched ${channelIds.length} channels with video data`);
+          }
+        } catch (error) {
+          console.error('[SearchMore] Error enriching channels:', error);
+          // Continue to next step even if this fails
+        }
+      }
+
+      // Step 3: Scrape new channels from YouTube if we still need more
+      if (totalNewChannels < 50) {
+        const needed = 50 - totalNewChannels;
+        console.log(`[SearchMore] Step 3: Scraping ${needed} new channels from YouTube`);
+
+        let response = await fetch(`/api/youtube/search/continue/${pagination.searchSessionId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            additionalChannels: needed,
+          }),
+        });
+
+        // If session not found (404), create a new search session
+        if (response.status === 404 && currentKeyword) {
+          console.log(`[SearchMore] Session expired, creating new search session for keyword: ${currentKeyword}`);
+          showToastMessage('Session expired. Creating new search session...', 3000);
+
+          // Start a new search with the current keyword and limit
+          const newSearchResponse = await fetch('/api/youtube/search', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              keyword: currentKeyword,
+              limit: needed,  // Only search for the needed amount
+              filters: searchFilters,
+            }),
+          });
+
+          if (!newSearchResponse.ok) {
+            throw new Error('Failed to create new search session');
+          }
+
+          const newSearchData = await newSearchResponse.json();
+
+          if (newSearchData.success && newSearchData.data) {
+            console.log(`[SearchMore] New session created: ${newSearchData.data.jobId}`);
+
+            // Poll the new job to completion
+            if (searchFormHandlers && newSearchData.data.jobId) {
+              // Wait for the new search to complete by polling
+              showToastMessage('Searching for more channels...', 5000);
+
+              // Simple polling loop for the new search
+              let pollCount = 0;
+              const maxPolls = 60; // 60 polls * 2s = 2 minutes max
+
+              while (pollCount < maxPolls) {
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+
+                const jobStatus = await fetch(`/api/youtube/search/${newSearchData.data.jobId}`);
+                const jobData = await jobStatus.json();
+
+                if (jobData.status === 'completed' || jobData.isComplete) {
+                  console.log(`[SearchMore] New search completed with ${jobData.channels?.length || 0} channels`);
+
+                  if (jobData.channels && jobData.channels.length > 0) {
+                    // Append the new channels
+                    channelsStore.appendChannels(
+                      jobData.channels,
+                      jobData.stats,
+                      {
+                        ...pagination,
+                        searchSessionId: jobData.sessionId || pagination.searchSessionId,
+                        hasMore: !jobData.isComplete,
+                      }
+                    );
+
+                    totalNewChannels += jobData.channels.length;
+                  }
+                  break;
+                }
+
+                if (jobData.status === 'failed') {
+                  throw new Error('New search failed');
+                }
+
+                pollCount++;
+              }
+
+              if (pollCount >= maxPolls) {
+                throw new Error('New search timed out');
+              }
+            }
+          }
+        } else if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to search more channels from YouTube');
+        } else {
+          // Normal flow - session still valid
+          const data = await response.json();
+
+          if (data.success && data.channels) {
+            console.log(`[SearchMore] Received ${data.channels.length} new channels from YouTube`);
+
+            channelsStore.appendChannels(data.channels, data.stats, data.pagination);
+
+            totalNewChannels += data.channels.length;
+          }
+        }
+      }
+
+      // Update the search limit to reflect the new total
+      // This ensures the limit is saved correctly for history restore
+      if (totalNewChannels > 0 && searchLimit) {
+        const newLimit = searchLimit + totalNewChannels;
+        console.log(`[SearchMore] Updating search limit from ${searchLimit} to ${newLimit}`);
+
+        // Update the store with the new limit
+        channelsStore.setChannels(
+          displayChannels,
+          stats,
+          pagination,
+          newLimit,  // Updated limit
+          searchFilters
+        );
+      }
+
+      // Show final success message
+      if (totalNewChannels > 0) {
+        showToastMessage(`Found ${totalNewChannels} more channels!`, 5000);
       } else {
-        throw new Error(data.error || 'Failed to search more channels');
+        showToastMessage('No more channels available at this time.', 5000);
       }
+
     } catch (error) {
       console.error('[SearchMore] Error:', error);
       showToastMessage(
-        error instanceof Error ? error.message : 'Failed to search more channels'
+        error instanceof Error ? error.message : 'Failed to search more channels',
+        5000
       );
     } finally {
       isSearchingMore = false;
@@ -419,6 +618,14 @@
       }, 3000);
     }
   }
+
+  function showToastMessage(message: string, duration: number = 3000) {
+    toastMessage = message;
+    showToast = true;
+    setTimeout(() => {
+      showToast = false;
+    }, duration);
+  }
 </script>
 
 {#if displayChannels.length > 0}
@@ -650,42 +857,8 @@
 
     <!-- Action Buttons -->
     <div class="flex flex-wrap gap-3">
-      <!-- Load More Button -->
-      {#if pagination && pagination.searchSessionId && stats && stats.filtered > displayChannels.length}
-        <button
-          on:click={handleLoadMoreFromDatabase}
-          disabled={isLoadingMoreChannels}
-          class="flex items-center gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {#if isLoadingMoreChannels}
-            <svg class="w-5 h-5 text-white animate-spin" viewBox="0 0 24 24">
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-                fill="none"
-              />
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            Loading...
-          {:else}
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
-            Load More ({stats.filtered - displayChannels.length} remaining)
-          {/if}
-        </button>
-      {/if}
-
-      <!-- Search 50 More Button -->
-      {#if pagination && pagination.searchSessionId && pagination.hasMore}
+      <!-- Search 50 More Button - Only show after search is complete (not searching and not enriching) -->
+      {#if pagination && pagination.searchSessionId && !$channelsStore.isSearching && !$channelsStore.isEnriching}
         <button
           on:click={handleSearchMore}
           disabled={isSearchingMore}

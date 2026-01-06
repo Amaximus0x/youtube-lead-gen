@@ -76,21 +76,27 @@ export async function apiGet<T>(endpoint: string): Promise<T> {
  * Restore a search session by loading channels from the database
  * This is used when user clicks "Restore Search" from dashboard
  *
- * @param sessionId - The search session ID to restore
+ * Note: The searchSessionId is the permanent UUID from search_sessions.id table,
+ * NOT a temporary session ID. It persists in the database.
+ *
+ * @param searchSessionId - The permanent search_sessions.id UUID from database
  * @param limit - Number of channels to load (default: 50)
+ * @param keyword - Keyword (for fallback if needed)
  * @returns Promise with channels, stats, and pagination data
  */
-export async function restoreSearchSession(sessionId: string, limit: number = 50) {
-  // Call the backend API directly (not the SvelteKit proxy)
-  // The backend endpoint supports sessionId-based loading
+export async function restoreSearchSession(searchSessionId: string, limit: number = 50, keyword?: string) {
+  console.log(`[RestoreSession] Loading channels for search_session_id: ${searchSessionId}`);
+
   try {
+    // Query channels by search_session_id (permanent DB identifier)
+    // This backend endpoint should query: SELECT * FROM channels WHERE search_session_id = $1
     const response = await fetch(`${API_URL}/youtube/search/load-more`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        sessionId,
+        sessionId: searchSessionId,  // This is the permanent search_sessions.id
         offset: 0,
         limit
       }),
@@ -101,6 +107,57 @@ export async function restoreSearchSession(sessionId: string, limit: number = 50
       const errorData = await response.json().catch(() => ({
         message: `HTTP ${response.status}: ${response.statusText}`
       }));
+
+      // If search session not found and we have keyword, try querying by keyword
+      if ((response.status === 404 || errorData.statusCode === 404) && keyword) {
+        console.log(`[RestoreSession] Search session not found, trying by keyword: ${keyword}`);
+
+        // Fallback: Query by keyword instead
+        const keywordResponse = await fetch('/api/youtube/load-more', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            keyword,
+            page: 1,
+            pageSize: limit
+          }),
+        });
+
+        if (!keywordResponse.ok) {
+          throw new Error(`Failed to restore by keyword: ${keywordResponse.statusText}`);
+        }
+
+        const keywordData = await keywordResponse.json();
+        if (keywordData.error || !keywordData.success) {
+          throw new Error(keywordData.error || 'Failed to restore by keyword');
+        }
+
+        // Transform keyword search results to expected format
+        return {
+          status: 'success',
+          data: {
+            channels: keywordData.channels || [],
+            stats: {
+              total: keywordData.pagination?.totalChannels || keywordData.channels?.length || 0,
+              filtered: keywordData.pagination?.totalChannels || keywordData.channels?.length || 0,
+              displayed: keywordData.channels?.length || 0,
+              keyword: keyword,
+              message: `Restored ${keywordData.channels?.length || 0} channels for "${keyword}"`
+            },
+            pagination: {
+              searchSessionId: null,  // No session since we queried by keyword
+              hasMore: keywordData.pagination?.hasMore || false,
+              currentPage: 1,
+              pageSize: limit,
+              totalChannels: keywordData.pagination?.totalChannels || keywordData.channels?.length || 0,
+              totalPages: 1
+            }
+          }
+        };
+      }
+
       throw new Error(errorData.message || errorData.error || `Request failed with status ${response.status}`);
     }
 
@@ -108,8 +165,8 @@ export async function restoreSearchSession(sessionId: string, limit: number = 50
     const data = await response.json();
 
     // Backend returns {status: "success" | "error", data?: ..., message?: ...}
-    if (data.status === 'error') {
-      throw new Error(data.message || 'Failed to restore search session');
+    if (data.status === 'error' || data.error) {
+      throw new Error(data.message || data.error || 'Failed to restore search');
     }
 
     return data;
