@@ -41,10 +41,12 @@ function createChannelsStore() {
 				...state,
 				isSearching,
 				error: null,
-				// Reset progress and stats when starting a new search
+				// Reset progress, stats, AND channels when starting a new search
 				searchProgress: isSearching ? 0 : state.searchProgress,
 				statusMessage: isSearching ? '' : state.statusMessage,
 				stats: isSearching ? null : state.stats, // Clear old stats when starting new search
+				channels: isSearching ? [] : state.channels, // Clear old channels when starting new search
+				pagination: isSearching ? null : state.pagination, // Clear old pagination when starting new search
 				// Store keyword and limit when starting a search
 				currentKeyword: keyword !== undefined ? keyword : state.currentKeyword,
 				searchLimit: searchLimit !== undefined ? searchLimit : state.searchLimit
