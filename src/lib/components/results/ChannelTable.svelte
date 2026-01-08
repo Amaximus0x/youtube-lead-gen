@@ -136,6 +136,7 @@
       let totalNewChannels = 0;
       let pollCount = 0;
       const maxPolls = 120; // 120 polls * 2s = 4 minutes max
+      let lastJobData: any = null; // Track last job data for final message
 
       while (pollCount < maxPolls) {
         // Check if user clicked stop
@@ -150,8 +151,9 @@
 
         const jobStatusResponse = await fetch(`/api/youtube/search/${jobId}`);
         const jobData = await jobStatusResponse.json();
+        lastJobData = jobData; // Track for final message
 
-        if (jobData.status === 'completed' || jobData.status === 'done') {
+        if (jobData.status === 'completed' || jobData.isComplete === true) {
           console.log(`[LoadMore] Job completed! Total channels: ${totalNewChannels}`);
           break;
         }
@@ -164,11 +166,30 @@
         if (jobData.newChannels && jobData.newChannels.length > 0) {
           console.log(`[LoadMore] Received ${jobData.newChannels.length} new channels from poll ${pollCount + 1}`);
 
+          // Update stats if provided (like initial search)
+          const updatedStats = jobData.stats || stats;
+
+          // Update pagination if needed
+          const updatedPagination = {
+            ...pagination,
+            hasMore: !jobData.isComplete,
+          };
+
           // Append new channels to store (streaming!)
-          channelsStore.appendChannels(jobData.newChannels, stats, pagination);
+          channelsStore.appendChannels(jobData.newChannels, updatedStats, updatedPagination);
 
           totalNewChannels += jobData.newChannels.length;
-          console.log(`[LoadMore] Total new channels so far: ${totalNewChannels}`);
+          console.log(`[LoadMore] Total new channels so far: ${totalNewChannels} (${jobData.progress || 0}% complete)`);
+        }
+
+        // Update progress even if no new channels (for progress bar)
+        if (jobData.progress !== undefined) {
+          console.log(`[LoadMore] Progress: ${jobData.progress}%`);
+        }
+
+        // Show status message if provided
+        if (jobData.statusMessage) {
+          console.log(`[LoadMore] Status: ${jobData.statusMessage}`);
         }
 
         pollCount++;
@@ -194,14 +215,17 @@
 
       // Show success message
       if (totalNewChannels > 0) {
-        showToastMessage(`Loaded ${totalNewChannels} more channels!`, 3000);
+        // Use status message from backend if available
+        const successMessage = lastJobData?.statusMessage || `Loaded ${totalNewChannels} more channels!`;
+        showToastMessage(successMessage, 3000);
 
         // Update last_displayed_rank for position-based continuation
         if (pagination && pagination.searchSessionId) {
           await updateLastDisplayedRank(pagination.searchSessionId, displayChannels);
         }
       } else {
-        showToastMessage('No more channels available at this time.', 3000);
+        const noResultsMessage = lastJobData?.statusMessage || 'No more channels available at this time.';
+        showToastMessage(noResultsMessage, 3000);
       }
 
     } catch (error) {

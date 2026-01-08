@@ -109,10 +109,18 @@ function createChannelsStore() {
 					console.log('[Store] Filtered out', channels.length - uniqueNewChannels.length, 'duplicate channels');
 				}
 
+				const totalChannels = state.channels.length + uniqueNewChannels.length;
+
+				// Update stats to reflect TOTAL displayed channels, not just new ones
+				const updatedStats = stats ? {
+					...stats,
+					displayed: totalChannels, // Show total displayed count
+				} : state.stats;
+
 				const newState = {
 					...state,
 					channels: [...state.channels, ...uniqueNewChannels],
-					stats,
+					stats: updatedStats,
 					pagination: fixedPagination,
 					isLoadingMore: false,
 					error: null
