@@ -1,26 +1,33 @@
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { PUBLIC_API_URL } from "$env/static/public";
 
-export const POST: RequestHandler = async ({ params, request }) => {
+// PATCH endpoint for updating search session (client filters, status, last displayed rank)
+export const PATCH: RequestHandler = async ({ params, request }) => {
 	try {
-		const { sessionId } = params;
-		const body = await request.json();
-		const { additionalChannels = 50 } = body;
+		const sessionId = params.sessionId;
 
-		console.log(`[API] Continuing search for session ${sessionId}, fetching ${additionalChannels} more channels`);
+		if (!sessionId) {
+			return json(
+				{
+					error: "Session ID is required",
+				},
+				{ status: 400 }
+			);
+		}
+
+		const body = await request.json();
+		console.log(`[API] Updating search session ${sessionId}:`, body);
 
 		const backendUrl = PUBLIC_API_URL || "http://localhost:8090";
 
 		const backendResponse = await fetch(
-			`${backendUrl}/youtube/search/continue/${sessionId}`,
+			`${backendUrl}/youtube/search-sessions/${sessionId}`,
 			{
-				method: "POST",
+				method: "PATCH",
 				headers: {
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({
-					additionalChannels,
-				}),
+				body: JSON.stringify(body),
 			}
 		);
 
@@ -37,18 +44,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		}
 
 		const backendData = await backendResponse.json();
-
-		console.log(`[API] Continue search job created, jobId: ${backendData.data?.jobId}`);
+		console.log(`[API] Search session ${sessionId} updated successfully`);
 
 		return json({
 			success: true,
-			data: backendData.data, // Preserve the data wrapper containing jobId
+			...backendData.data,
 		});
 	} catch (error) {
-		console.error("[API] Continue search error:", error);
+		console.error("[API] Update search session error:", error);
 		return json(
 			{
-				error: "Failed to continue search",
+				error: "Failed to update search session",
 				message: error instanceof Error ? error.message : "Unknown error",
 			},
 			{ status: 500 }
