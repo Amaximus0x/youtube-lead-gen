@@ -219,9 +219,12 @@
         const successMessage = lastJobData?.statusMessage || `Loaded ${totalNewChannels} more channels!`;
         showToastMessage(successMessage, 3000);
 
-        // Update last_displayed_rank for position-based continuation
+        // Update session in database with new limit and last_displayed_rank
         if (pagination && pagination.searchSessionId) {
-          await updateLastDisplayedRank(pagination.searchSessionId, displayChannels);
+          const newLimit = searchLimit + totalNewChannels;
+
+          // Update both last_displayed_rank and search_limit in one call
+          await updateSessionLimit(pagination.searchSessionId, displayChannels, newLimit);
         }
       } else {
         const noResultsMessage = lastJobData?.statusMessage || 'No more channels available at this time.';
@@ -610,6 +613,51 @@
       }
     } catch (error) {
       console.error('[UpdateRank] Error updating last_displayed_rank:', error);
+      // Don't show error to user - this is a background operation
+    }
+  }
+
+  /**
+   * Update both last_displayed_rank AND search_limit in the backend after Load More
+   * This ensures the session persists the total number of channels loaded
+   */
+  async function updateSessionLimit(sessionId: string, channels: ChannelSearchResult[], newLimit: number) {
+    if (!channels || channels.length === 0) return;
+
+    try {
+      // Find the highest search rank among displayed channels
+      const highestRank = Math.max(
+        ...channels
+          .filter((ch) => ch.searchRank !== undefined && ch.searchRank !== null)
+          .map((ch) => ch.searchRank!)
+      );
+
+      if (highestRank === -Infinity || isNaN(highestRank)) {
+        console.warn('[UpdateSession] No valid search ranks found in displayed channels');
+        return;
+      }
+
+      console.log(`[UpdateSession] Updating session ${sessionId}: last_displayed_rank=${highestRank}, search_limit=${newLimit}`);
+
+      const response = await fetch(`/api/youtube/search-sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          lastDisplayedRank: highestRank,
+          searchLimit: newLimit,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('[UpdateSession] Failed to update session:', errorData);
+      } else {
+        console.log(`[UpdateSession] Successfully updated session with limit ${newLimit}`);
+      }
+    } catch (error) {
+      console.error('[UpdateSession] Error updating session:', error);
       // Don't show error to user - this is a background operation
     }
   }
