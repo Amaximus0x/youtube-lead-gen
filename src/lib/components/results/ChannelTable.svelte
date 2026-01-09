@@ -135,7 +135,7 @@
       // STEP 2: Poll the job for results (like initial search)
       let totalNewChannels = 0;
       let pollCount = 0;
-      const maxPolls = 120; // 120 polls * 2s = 4 minutes max
+      const maxPolls = 180; // 180 polls * 2s = 6 minutes max (enriching 30 channels can take time)
       let lastJobData: any = null; // Track last job data for final message
 
       while (pollCount < maxPolls) {
@@ -196,7 +196,19 @@
       }
 
       if (pollCount >= maxPolls) {
-        throw new Error('Load more timed out');
+        console.warn(`[LoadMore] Timed out after ${maxPolls} polls, but got ${totalNewChannels} channels`);
+
+        // Update searchLimit with channels we did get before timing out
+        if (totalNewChannels > 0 && searchLimit) {
+          const newLimit = searchLimit + totalNewChannels;
+          channelsStore.setChannels(displayChannels, stats, pagination, newLimit, searchFilters);
+
+          if (pagination && pagination.searchSessionId) {
+            await updateSessionLimit(pagination.searchSessionId, displayChannels, newLimit);
+          }
+        }
+
+        throw new Error(`Timed out - but loaded ${totalNewChannels} channels`);
       }
 
       // Update search limit to reflect new total
@@ -235,7 +247,30 @@
       // Handle abort (user clicked stop)
       if (error.message === 'AbortError' || error.name === 'AbortError') {
         console.log('[LoadMore] Operation stopped by user');
-        showToastMessage('Load more stopped', 2000);
+
+        // Update searchLimit even if stopped, based on channels actually loaded
+        if (totalNewChannels > 0 && searchLimit && pagination) {
+          const newLimit = searchLimit + totalNewChannels;
+          console.log(`[LoadMore] Stopped but updating limit: ${searchLimit} → ${newLimit} (loaded ${totalNewChannels} channels)`);
+
+          // Update frontend store
+          channelsStore.setChannels(
+            displayChannels,
+            stats,
+            pagination,
+            newLimit,
+            searchFilters
+          );
+
+          // Update backend database
+          if (pagination.searchSessionId) {
+            await updateSessionLimit(pagination.searchSessionId, displayChannels, newLimit);
+          }
+
+          showToastMessage(`Stopped - saved ${totalNewChannels} channels`, 2000);
+        } else {
+          showToastMessage('Load more stopped', 2000);
+        }
       } else {
         console.error('[LoadMore] Error:', error);
         showToastMessage(
