@@ -86,7 +86,7 @@ function createChannelsStore() {
 			channels: ChannelSearchResult[],
 			stats: SearchStats | null,
 			pagination: Pagination | null
-		) => {
+		): number => {
 			console.log('[Store] appendChannels called with:', channels.length, 'new channels');
 
 			// Fix for missing totalPages in backend response (fallback calculation)
@@ -98,12 +98,15 @@ function createChannelsStore() {
 				};
 			}
 
+			let uniqueCount = 0;
+
 			update((state) => {
 				// Create a set of existing channel IDs for duplicate prevention
 				const existingIds = new Set(state.channels.map(ch => ch.channelId));
 
 				// Filter out any duplicates (just in case)
 				const uniqueNewChannels = channels.filter(ch => !existingIds.has(ch.channelId));
+				uniqueCount = uniqueNewChannels.length;
 
 				if (uniqueNewChannels.length < channels.length) {
 					console.log('[Store] Filtered out', channels.length - uniqueNewChannels.length, 'duplicate channels');
@@ -128,6 +131,8 @@ function createChannelsStore() {
 				console.log('[Store] State updated. Total channels now:', newState.channels.length);
 				return newState;
 			});
+
+			return uniqueCount;
 		},
 		setLoadingMore: (isLoadingMore: boolean) => {
 			update((state) => ({ ...state, isLoadingMore, error: null }));

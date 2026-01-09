@@ -1,6 +1,7 @@
 <script lang="ts">
   import { channelsStore } from '$lib/stores/channels';
   import { fetchPage } from '$lib/api/pagination';
+  import { apiPost } from '$lib/api/client';
   import type { ChannelSearchResult } from '$lib/types/api';
 
   // Accept channels as prop (for filtered channels from parent)
@@ -102,6 +103,10 @@
     isSearchingMore = true;
     loadMoreAbortController = new AbortController();
 
+    // Declare these outside try block so they're accessible in catch block
+    let totalNewChannels = 0; // Track unique channels actually added (after duplicate filtering)
+    let totalReceivedChannels = 0; // Track channels received from backend (before filtering)
+
     try {
       console.log(`[LoadMore] Creating job for session ${pagination.searchSessionId}`);
       showToastMessage('Loading more channels...', 3000);
@@ -133,7 +138,6 @@
       console.log(`[LoadMore] Job created: ${jobId}, now polling for results...`);
 
       // STEP 2: Poll the job for results (like initial search)
-      let totalNewChannels = 0;
       let pollCount = 0;
       const maxPolls = 180; // 180 polls * 2s = 6 minutes max (enriching 30 channels can take time)
       let lastJobData: any = null; // Track last job data for final message
@@ -142,8 +146,13 @@
         // Check if user clicked stop
         if (loadMoreAbortController.signal.aborted) {
           console.log('[LoadMore] Stop requested, cancelling job...');
-          // Call backend to cancel the job
-          await fetch(`/api/youtube/search/cancel/${jobId}`, { method: 'POST' });
+          // Call backend to cancel the job (same as initial search)
+          try {
+            await apiPost('/youtube/search/cancel', { jobId });
+            console.log('[LoadMore] Successfully sent cancel request to backend');
+          } catch (error) {
+            console.warn('[LoadMore] Failed to send cancel request:', error);
+          }
           throw new Error('AbortError');
         }
 
@@ -153,16 +162,12 @@
         const jobData = await jobStatusResponse.json();
         lastJobData = jobData; // Track for final message
 
-        if (jobData.status === 'completed' || jobData.isComplete === true) {
-          console.log(`[LoadMore] Job completed! Total channels: ${totalNewChannels}`);
-          break;
-        }
-
         if (jobData.status === 'failed') {
           throw new Error(jobData.error || 'Load more job failed');
         }
 
-        // Check for new channels in this poll
+        // Check for new channels in this poll BEFORE checking completion
+        // This ensures we process channels even if job completes immediately
         if (jobData.newChannels && jobData.newChannels.length > 0) {
           console.log(`[LoadMore] Received ${jobData.newChannels.length} new channels from poll ${pollCount + 1}`);
 
@@ -176,10 +181,19 @@
           };
 
           // Append new channels to store (streaming!)
-          channelsStore.appendChannels(jobData.newChannels, updatedStats, updatedPagination);
+          // appendChannels now returns the count of UNIQUE channels added (after duplicate filtering)
+          const uniqueAdded = channelsStore.appendChannels(jobData.newChannels, updatedStats, updatedPagination);
 
-          totalNewChannels += jobData.newChannels.length;
-          console.log(`[LoadMore] Total new channels so far: ${totalNewChannels} (${jobData.progress || 0}% complete)`);
+          totalNewChannels += uniqueAdded; // Track unique channels
+          totalReceivedChannels += jobData.newChannels.length; // Track all received
+
+          console.log(`[LoadMore] Added ${uniqueAdded} unique channels (${jobData.newChannels.length - uniqueAdded} duplicates filtered). Total unique: ${totalNewChannels} (${jobData.progress || 0}% complete)`);
+        }
+
+        // Check completion AFTER processing channels
+        if (jobData.status === 'completed' || jobData.isComplete === true) {
+          console.log(`[LoadMore] Job completed! Unique channels added: ${totalNewChannels} (${totalReceivedChannels} received, ${totalReceivedChannels - totalNewChannels} duplicates)`);
+          break;
         }
 
         // Update progress even if no new channels (for progress bar)
@@ -232,12 +246,14 @@
         showToastMessage(successMessage, 3000);
 
         // Update session in database with new limit and last_displayed_rank
+        // Note: Backend already updated last_displayed_rank, this is a redundant safety update
         if (pagination && pagination.searchSessionId) {
           const newLimit = searchLimit + totalNewChannels;
-
-          // Update both last_displayed_rank and search_limit in one call
           await updateSessionLimit(pagination.searchSessionId, displayChannels, newLimit);
         }
+      } else if (totalReceivedChannels > 0) {
+        // Received channels but they were all duplicates
+        showToastMessage(`All ${totalReceivedChannels} channels were already loaded. Try searching for more channels.`, 4000);
       } else {
         const noResultsMessage = lastJobData?.statusMessage || 'No more channels available at this time.';
         showToastMessage(noResultsMessage, 3000);
