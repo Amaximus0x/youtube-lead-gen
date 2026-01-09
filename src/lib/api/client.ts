@@ -85,21 +85,16 @@ export async function apiGet<T>(endpoint: string): Promise<T> {
  * @returns Promise with channels, stats, and pagination data
  */
 export async function restoreSearchSession(searchSessionId: string, limit: number = 50, keyword?: string) {
-  console.log(`[RestoreSession] Loading channels for search_session_id: ${searchSessionId}`);
+  console.log(`[RestoreSession] Loading ${limit} channels for search_session_id: ${searchSessionId}`);
 
   try {
-    // Query channels by search_session_id (permanent DB identifier)
-    // This backend endpoint should query: SELECT * FROM channels WHERE search_session_id = $1
-    const response = await fetch(`${API_URL}/youtube/search/load-more`, {
-      method: 'POST',
+    // Use new GET endpoint that simply fetches enriched channels from DB
+    // NO enrichment job - instant restore!
+    const response = await fetch(`${API_URL}/youtube/search-sessions/${searchSessionId}/channels?limit=${limit}`, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        sessionId: searchSessionId,  // This is the permanent search_sessions.id
-        offset: 0,
-        limit
-      }),
     });
 
     // Check if the response is ok (status 200-299)

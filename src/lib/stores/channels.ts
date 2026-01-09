@@ -41,10 +41,12 @@ function createChannelsStore() {
 				...state,
 				isSearching,
 				error: null,
-				// Reset progress and stats when starting a new search
+				// Reset progress, stats, AND channels when starting a new search
 				searchProgress: isSearching ? 0 : state.searchProgress,
 				statusMessage: isSearching ? '' : state.statusMessage,
 				stats: isSearching ? null : state.stats, // Clear old stats when starting new search
+				channels: isSearching ? [] : state.channels, // Clear old channels when starting new search
+				pagination: isSearching ? null : state.pagination, // Clear old pagination when starting new search
 				// Store keyword and limit when starting a search
 				currentKeyword: keyword !== undefined ? keyword : state.currentKeyword,
 				searchLimit: searchLimit !== undefined ? searchLimit : state.searchLimit
@@ -84,7 +86,7 @@ function createChannelsStore() {
 			channels: ChannelSearchResult[],
 			stats: SearchStats | null,
 			pagination: Pagination | null
-		) => {
+		): number => {
 			console.log('[Store] appendChannels called with:', channels.length, 'new channels');
 
 			// Fix for missing totalPages in backend response (fallback calculation)
@@ -96,21 +98,32 @@ function createChannelsStore() {
 				};
 			}
 
+			let uniqueCount = 0;
+
 			update((state) => {
 				// Create a set of existing channel IDs for duplicate prevention
 				const existingIds = new Set(state.channels.map(ch => ch.channelId));
 
 				// Filter out any duplicates (just in case)
 				const uniqueNewChannels = channels.filter(ch => !existingIds.has(ch.channelId));
+				uniqueCount = uniqueNewChannels.length;
 
 				if (uniqueNewChannels.length < channels.length) {
 					console.log('[Store] Filtered out', channels.length - uniqueNewChannels.length, 'duplicate channels');
 				}
 
+				const totalChannels = state.channels.length + uniqueNewChannels.length;
+
+				// Update stats to reflect TOTAL displayed channels, not just new ones
+				const updatedStats = stats ? {
+					...stats,
+					displayed: totalChannels, // Show total displayed count
+				} : state.stats;
+
 				const newState = {
 					...state,
 					channels: [...state.channels, ...uniqueNewChannels],
-					stats,
+					stats: updatedStats,
 					pagination: fixedPagination,
 					isLoadingMore: false,
 					error: null
@@ -118,6 +131,8 @@ function createChannelsStore() {
 				console.log('[Store] State updated. Total channels now:', newState.channels.length);
 				return newState;
 			});
+
+			return uniqueCount;
 		},
 		setLoadingMore: (isLoadingMore: boolean) => {
 			update((state) => ({ ...state, isLoadingMore, error: null }));
