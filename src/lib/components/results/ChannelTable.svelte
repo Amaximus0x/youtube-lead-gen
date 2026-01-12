@@ -1,7 +1,7 @@
 <script lang="ts">
   import { channelsStore } from '$lib/stores/channels';
   import { fetchPage } from '$lib/api/pagination';
-  import { apiPost } from '$lib/api/client';
+  import { apiPost, apiGet, apiPatch } from '$lib/api/client';
   import type { ChannelSearchResult } from '$lib/types/api';
 
   // Accept channels as prop (for filtered channels from parent)
@@ -111,24 +111,10 @@
       console.log(`[LoadMore] Creating job for session ${pagination.searchSessionId}`);
       showToastMessage('Loading more channels...', 3000);
 
-      // STEP 1: Create the load-more job
-      const response = await fetch(`/api/youtube/search/continue/${pagination.searchSessionId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          additionalChannels: 30, // Target: 30 enriched channels
-        }),
-        signal: loadMoreAbortController.signal, // Allow cancellation
+      // STEP 1: Create the load-more job (direct backend call)
+      const data = await apiPost<any>(`/youtube/search/continue/${pagination.searchSessionId}`, {
+        additionalChannels: 30, // Target: 30 enriched channels
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create load more job');
-      }
-
-      const data = await response.json();
 
       if (!data.success || !data.data?.jobId) {
         throw new Error('No job ID returned from backend');
@@ -158,8 +144,7 @@
 
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
 
-        const jobStatusResponse = await fetch(`/api/youtube/search/${jobId}`);
-        const jobData = await jobStatusResponse.json();
+        const jobData = await apiGet<any>(`/youtube/search/${jobId}`);
         lastJobData = jobData; // Track for final message
 
         if (jobData.status === 'failed') {
@@ -646,22 +631,11 @@
 
       console.log(`[UpdateRank] Updating last_displayed_rank to ${highestRank} for session ${sessionId}`);
 
-      const response = await fetch(`/api/youtube/search-sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          lastDisplayedRank: highestRank,
-        }),
+      await apiPatch(`/youtube/search-sessions/${sessionId}`, {
+        lastDisplayedRank: highestRank,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('[UpdateRank] Failed to update last_displayed_rank:', errorData);
-      } else {
-        console.log(`[UpdateRank] Successfully updated last_displayed_rank to ${highestRank}`);
-      }
+      console.log(`[UpdateRank] Successfully updated last_displayed_rank to ${highestRank}`);
     } catch (error) {
       console.error('[UpdateRank] Error updating last_displayed_rank:', error);
       // Don't show error to user - this is a background operation
@@ -690,23 +664,12 @@
 
       console.log(`[UpdateSession] Updating session ${sessionId}: last_displayed_rank=${highestRank}, search_limit=${newLimit}`);
 
-      const response = await fetch(`/api/youtube/search-sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          lastDisplayedRank: highestRank,
-          searchLimit: newLimit,
-        }),
+      await apiPatch(`/youtube/search-sessions/${sessionId}`, {
+        lastDisplayedRank: highestRank,
+        searchLimit: newLimit,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('[UpdateSession] Failed to update session:', errorData);
-      } else {
-        console.log(`[UpdateSession] Successfully updated session with limit ${newLimit}`);
-      }
+      console.log(`[UpdateSession] Successfully updated session with limit ${newLimit}`);
     } catch (error) {
       console.error('[UpdateSession] Error updating session:', error);
       // Don't show error to user - this is a background operation
