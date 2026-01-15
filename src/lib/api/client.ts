@@ -103,56 +103,6 @@ export async function restoreSearchSession(searchSessionId: string, limit: numbe
         message: `HTTP ${response.status}: ${response.statusText}`
       }));
 
-      // If search session not found and we have keyword, try querying by keyword
-      if ((response.status === 404 || errorData.statusCode === 404) && keyword) {
-        console.log(`[RestoreSession] Search session not found, trying by keyword: ${keyword}`);
-
-        // Fallback: Query by keyword instead
-        const keywordResponse = await fetch('/api/youtube/load-more', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            keyword,
-            page: 1,
-            pageSize: limit
-          }),
-        });
-
-        if (!keywordResponse.ok) {
-          throw new Error(`Failed to restore by keyword: ${keywordResponse.statusText}`);
-        }
-
-        const keywordData = await keywordResponse.json();
-        if (keywordData.error || !keywordData.success) {
-          throw new Error(keywordData.error || 'Failed to restore by keyword');
-        }
-
-        // Transform keyword search results to expected format
-        return {
-          status: 'success',
-          data: {
-            channels: keywordData.channels || [],
-            stats: {
-              total: keywordData.pagination?.totalChannels || keywordData.channels?.length || 0,
-              filtered: keywordData.pagination?.totalChannels || keywordData.channels?.length || 0,
-              displayed: keywordData.channels?.length || 0,
-              keyword: keyword,
-              message: `Restored ${keywordData.channels?.length || 0} channels for "${keyword}"`
-            },
-            pagination: {
-              searchSessionId: null,  // No session since we queried by keyword
-              hasMore: keywordData.pagination?.hasMore || false,
-              currentPage: 1,
-              pageSize: limit,
-              totalChannels: keywordData.pagination?.totalChannels || keywordData.channels?.length || 0,
-              totalPages: 1
-            }
-          }
-        };
-      }
-
       throw new Error(errorData.message || errorData.error || `Request failed with status ${response.status}`);
     }
 
