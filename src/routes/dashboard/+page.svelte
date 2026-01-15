@@ -2,6 +2,9 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/authStore';
+	import { PUBLIC_API_URL } from '$env/static/public';
+
+	const API_URL = PUBLIC_API_URL || 'http://localhost:8090';
 
 	interface SearchHistoryItem {
 		id: string;
@@ -45,7 +48,7 @@
 			}
 
 			const response = await fetch(
-				`/api/youtube/search/history?${params.toString()}`
+				`${API_URL}/youtube/search-history?${params.toString()}`
 			);
 
 			if (!response.ok) {
@@ -54,12 +57,13 @@
 
 			const data = await response.json();
 
-			if (data.success) {
-				history = data.history || [];
-				hasMore = data.hasMore || false;
-				totalPages = Math.ceil((data.total || 0) / pageSize);
+			// Backend returns: { status: "success", data: { history, total, ... } }
+			if (data.status === 'success' && data.data) {
+				history = data.data.history || [];
+				hasMore = data.data.hasMore || false;
+				totalPages = Math.ceil((data.data.total || 0) / pageSize);
 			} else {
-				throw new Error(data.error || 'Failed to load history');
+				throw new Error(data.message || 'Failed to load history');
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';

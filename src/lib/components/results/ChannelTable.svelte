@@ -3,6 +3,9 @@
   import { fetchPage } from '$lib/api/pagination';
   import { apiPost } from '$lib/api/client';
   import type { ChannelSearchResult } from '$lib/types/api';
+  import { PUBLIC_API_URL } from '$env/static/public';
+
+  const API_URL = PUBLIC_API_URL || 'http://localhost:8090';
 
   // Accept channels as prop (for filtered channels from parent)
   export let channels: ChannelSearchResult[] = [];
@@ -112,7 +115,7 @@
       showToastMessage('Loading more channels...', 3000);
 
       // STEP 1: Create the load-more job
-      const response = await fetch(`/api/youtube/search/continue/${pagination.searchSessionId}`, {
+      const response = await fetch(`${API_URL}/youtube/search/continue/${pagination.searchSessionId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,7 +133,8 @@
 
       const data = await response.json();
 
-      if (!data.success || !data.data?.jobId) {
+      // Backend returns: { status: "success", data: { jobId: "..." } }
+      if (data.status !== 'success' || !data.data?.jobId) {
         throw new Error('No job ID returned from backend');
       }
 
@@ -158,7 +162,7 @@
 
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
 
-        const jobStatusResponse = await fetch(`/api/youtube/search/${jobId}`);
+        const jobStatusResponse = await fetch(`${API_URL}/youtube/search/${jobId}`);
         const jobData = await jobStatusResponse.json();
         lastJobData = jobData; // Track for final message
 
@@ -646,7 +650,7 @@
 
       console.log(`[UpdateRank] Updating last_displayed_rank to ${highestRank} for session ${sessionId}`);
 
-      const response = await fetch(`/api/youtube/search-sessions/${sessionId}`, {
+      const response = await fetch(`${API_URL}/youtube/search-sessions/${sessionId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -690,7 +694,7 @@
 
       console.log(`[UpdateSession] Updating session ${sessionId}: last_displayed_rank=${highestRank}, search_limit=${newLimit}`);
 
-      const response = await fetch(`/api/youtube/search-sessions/${sessionId}`, {
+      const response = await fetch(`${API_URL}/youtube/search-sessions/${sessionId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
