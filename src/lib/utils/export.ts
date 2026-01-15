@@ -1,4 +1,4 @@
-import type { ChannelSearchResult } from '$lib/server/youtube/scraper-puppeteer';
+import type { ChannelSearchResult } from '$lib/types/api';
 
 /**
  * Escapes CSV field values to handle commas, quotes, and newlines
