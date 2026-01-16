@@ -11,22 +11,43 @@
 	let showAuthModal = $state(false);
 	let authMode: 'login' | 'signup' = $state('login');
 	let showUserMenu = $state(false);
+	let searchKeyword = $state<string | null>(null);
 
 	const auth = $derived($authStore);
 
 	onMount(() => {
 		// Initialize auth state
 		authStore.initialize();
+
+		// Listen for custom event to open auth modal with search context
+		const handleOpenAuthModal = (event: CustomEvent) => {
+			searchKeyword = event.detail?.keyword || null;
+			authMode = 'login';
+			showAuthModal = true;
+		};
+
+		window.addEventListener('open-auth-modal', handleOpenAuthModal as EventListener);
+
+		return () => {
+			window.removeEventListener('open-auth-modal', handleOpenAuthModal as EventListener);
+		};
 	});
 
 	function openLoginModal() {
 		authMode = 'login';
+		searchKeyword = null;
 		showAuthModal = true;
 	}
 
 	function openSignupModal() {
 		authMode = 'signup';
+		searchKeyword = null;
 		showAuthModal = true;
+	}
+
+	function closeAuthModal() {
+		showAuthModal = false;
+		searchKeyword = null;
 	}
 
 	function toggleUserMenu() {
@@ -119,7 +140,8 @@
 	{#if showAuthModal}
 		<AuthModal
 			mode={authMode}
-			onClose={() => (showAuthModal = false)}
+			onClose={closeAuthModal}
+			searchKeyword={searchKeyword}
 		/>
 	{/if}
 </div>

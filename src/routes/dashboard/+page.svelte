@@ -246,14 +246,14 @@
 							</th>
 							{#if $authStore.user}
 								<th class="px-6 py-3 text-xs font-medium tracking-wider text-right text-gray-500 uppercase">
-									Limit
+									Total Channels
 								</th>
 							{/if}
 							<th class="px-6 py-3 text-xs font-medium tracking-wider text-right text-gray-500 uppercase">
-								With Email
+								Total Emails
 							</th>
 							<th class="px-6 py-3 text-xs font-medium tracking-wider text-right text-gray-500 uppercase">
-								With Social
+								Total Social links
 							</th>
 							<th class="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
 								Filters

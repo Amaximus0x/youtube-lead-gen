@@ -66,6 +66,27 @@
 
   // Setup beforeunload listener when component mounts
   onMount(async () => {
+    // Check for pending search after authentication
+    const pendingSearch = sessionStorage.getItem('pendingSearch');
+    if (pendingSearch && $authStore.user) {
+      try {
+        const { keyword: pendingKeyword, limit } = JSON.parse(pendingSearch);
+        console.log('[SearchForm] Resuming pending search after auth:', pendingKeyword);
+
+        // Clear the pending search
+        sessionStorage.removeItem('pendingSearch');
+
+        // Set form values
+        keyword = pendingKeyword;
+        totalChannelsLimit = limit;
+
+        // Trigger the search
+        setTimeout(() => handleSearch(), 100);
+      } catch (error) {
+        console.error('[SearchForm] Error resuming pending search:', error);
+      }
+    }
+
     // Restore UI state from store if search is already running
     const currentState = $channelsStore;
     if (currentState.isSearching || currentState.currentKeyword) {
@@ -266,17 +287,27 @@
   });
 
   async function handleSearch() {
-    // Check if user is authenticated
-    const auth = $authStore;
-    if (!auth.user) {
-      toastStore.error('Please sign in to perform a search');
-      channelsStore.setError('Authentication required. Please sign in to search for channels.');
-      return;
-    }
-
     // Validate input
     if (!keyword.trim()) {
       channelsStore.setError('Please enter a keyword');
+      return;
+    }
+
+    // Check if user is authenticated - if not, trigger auth modal
+    const auth = $authStore;
+    if (!auth.user) {
+      // Store the search intent for after authentication
+      sessionStorage.setItem('pendingSearch', JSON.stringify({
+        keyword: keyword.trim(),
+        limit: totalChannelsLimit
+      }));
+
+      // Dispatch custom event to open auth modal from layout
+      window.dispatchEvent(new CustomEvent('open-auth-modal', {
+        detail: {
+          keyword: keyword.trim()
+        }
+      }));
       return;
     }
 
@@ -820,25 +851,6 @@
 <div class="p-6 bg-white rounded-lg shadow-md">
   <h2 class="mb-4 text-2xl font-bold text-gray-800">Search YouTube Channels</h2>
 
-  <!-- Authentication Required Notice -->
-  {#if !$authStore.user && !$authStore.loading}
-    <div class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-      <div class="flex items-start">
-        <div class="flex-shrink-0">
-          <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        </div>
-        <div class="ml-3 flex-1">
-          <h3 class="text-sm font-medium text-yellow-800">Sign in required</h3>
-          <p class="mt-1 text-sm text-yellow-700">
-            You must be signed in to search for YouTube channels. Please sign in or create an account to continue.
-          </p>
-        </div>
-      </div>
-    </div>
-  {/if}
-
   <form on:submit|preventDefault={handleSearch} class="space-y-4">
     <!-- Keyword Input -->
     <div>
@@ -850,8 +862,7 @@
         id="keyword"
         bind:value={keyword}
         placeholder="e.g., tech reviews, cooking, gaming"
-        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-        disabled={!$authStore.user}
+        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         required
       />
       <p class="mt-1 text-sm text-gray-500">Enter a keyword to search for relevant channels</p>
@@ -869,8 +880,7 @@
         min="5"
         max="200"
         step="5"
-        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-        disabled={!$authStore.user}
+        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
       <p class="mt-1 text-sm text-gray-500">
         Maximum number of channels to scrape from YouTube. Use "Load More" to fetch additional
@@ -908,9 +918,7 @@
         <!-- Search Button (shown when not searching) -->
         <button
           type="submit"
-          disabled={!$authStore.user}
-          class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-          title={!$authStore.user ? 'Please sign in to search' : 'Start search'}
+          class="flex items-center justify-center flex-1 gap-2 px-6 py-3 font-semibold text-white transition-colors bg-blue-600 rounded-md hover:bg-blue-700"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
