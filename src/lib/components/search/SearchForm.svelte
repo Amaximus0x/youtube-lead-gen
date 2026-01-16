@@ -34,8 +34,8 @@
     statusMessage = state.statusMessage;
   }
 
-  // Get API URL from environment or use default
-  const API_URL = import.meta.env.VITE_PUBLIC_API_URL || 'http://localhost:8090';
+  // Get API URL from environment
+  const API_URL = import.meta.env.VITE_PUBLIC_API_URL;
 
   // LocalStorage key for tracking active jobs
   const ACTIVE_JOB_KEY = 'youtube-lead-gen-active-job';
@@ -66,6 +66,27 @@
 
   // Setup beforeunload listener when component mounts
   onMount(async () => {
+    // Check for pending search after authentication
+    const pendingSearch = sessionStorage.getItem('pendingSearch');
+    if (pendingSearch && $authStore.user) {
+      try {
+        const { keyword: pendingKeyword, limit } = JSON.parse(pendingSearch);
+        console.log('[SearchForm] Resuming pending search after auth:', pendingKeyword);
+
+        // Clear the pending search
+        sessionStorage.removeItem('pendingSearch');
+
+        // Set form values
+        keyword = pendingKeyword;
+        totalChannelsLimit = limit;
+
+        // Trigger the search
+        setTimeout(() => handleSearch(), 100);
+      } catch (error) {
+        console.error('[SearchForm] Error resuming pending search:', error);
+      }
+    }
+
     // Restore UI state from store if search is already running
     const currentState = $channelsStore;
     if (currentState.isSearching || currentState.currentKeyword) {
@@ -269,6 +290,24 @@
     // Validate input
     if (!keyword.trim()) {
       channelsStore.setError('Please enter a keyword');
+      return;
+    }
+
+    // Check if user is authenticated - if not, trigger auth modal
+    const auth = $authStore;
+    if (!auth.user) {
+      // Store the search intent for after authentication
+      sessionStorage.setItem('pendingSearch', JSON.stringify({
+        keyword: keyword.trim(),
+        limit: totalChannelsLimit
+      }));
+
+      // Dispatch custom event to open auth modal from layout
+      window.dispatchEvent(new CustomEvent('open-auth-modal', {
+        detail: {
+          keyword: keyword.trim()
+        }
+      }));
       return;
     }
 

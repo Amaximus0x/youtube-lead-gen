@@ -5,9 +5,10 @@
 	interface Props {
 		mode: 'login' | 'signup';
 		onClose: () => void;
+		searchKeyword?: string | null;
 	}
 
-	let { mode = $bindable(), onClose }: Props = $props();
+	let { mode = $bindable(), onClose, searchKeyword }: Props = $props();
 
 	let email = $state('');
 	let password = $state('');
@@ -107,11 +108,17 @@
 			<h2 class="text-2xl font-bold text-gray-900">
 				{mode === 'login' ? 'Welcome Back' : 'Create Account'}
 			</h2>
-			<p class="mt-2 text-sm text-gray-600">
-				{mode === 'login'
-					? 'Sign in to access your search history'
-					: 'Sign up to save your searches and track your leads'}
-			</p>
+			{#if searchKeyword}
+				<p class="mt-2 text-sm text-gray-600">
+					Sign in to start your search for <span class="font-semibold text-blue-600">"{searchKeyword}"</span>
+				</p>
+			{:else}
+				<p class="mt-2 text-sm text-gray-600">
+					{mode === 'login'
+						? 'Sign in to access your search history'
+						: 'Sign up to save your searches and track your leads'}
+				</p>
+			{/if}
 		</div>
 
 		<!-- Error Message -->
