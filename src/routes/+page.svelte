@@ -4,7 +4,7 @@
 	import FilterPanel from '$lib/components/results/FilterPanel.svelte';
 	import { channelsStore } from '$lib/stores/channels';
 	import { exportChannelsToCSV } from '$lib/utils/export';
-	import { applyClientFilters, clearAllFilters, getFilterStats } from '$lib/utils/clientFilters';
+	import * as ClientFilterUtils from '$lib/utils/clientFilters';
 	import type { ClientFilters } from '$lib/utils/clientFilters';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
@@ -13,27 +13,37 @@
 	let searchFormRef: any;
 
 	// Client-side filters (applied after search completes)
-	let clientFilters: ClientFilters = clearAllFilters();
-	let wasSearching = false;
+	let clientFilters: ClientFilters = {
+		subscriberRanges: [],
+		viewRanges: [],
+		avgViewRanges: [],
+		countries: [],
+		uploadDateRange: '',
+		searchQuery: '',
+		hasEmail: false,
+		hasSocialLinks: false,
+	};
 
-	// Apply filters to channels
-	$: allChannels = $channelsStore.channels;
-	$: filteredChannels = applyClientFilters(allChannels, clientFilters);
-	$: filterStats = getFilterStats(allChannels, clientFilters);
+	// Apply filters to channels - using derived state instead of reactive statements with imports
+	let allChannels: typeof $channelsStore.channels = [];
+	let filteredChannels: typeof $channelsStore.channels = [];
+	let filterStats = {
+		total: 0,
+		filtered: 0,
+		hiddenByFilters: 0,
+		percentage: 0,
+		hasActiveFilters: false
+	};
+
+	// Update derived state when dependencies change
+	$: {
+		allChannels = $channelsStore.channels;
+		filteredChannels = ClientFilterUtils.applyClientFilters(allChannels, clientFilters);
+		filterStats = ClientFilterUtils.getFilterStats(allChannels, clientFilters);
+	}
 
 	$: hasResults = allChannels.length > 0;
 	$: showFilters = hasResults && !$channelsStore.isSearching;
-
-	// Reset filters when a NEW search starts (isSearching goes from false to true)
-	$: {
-		const isSearching = $channelsStore.isSearching;
-		// Detect transition from not searching to searching (new search started)
-		if (isSearching && !wasSearching) {
-			console.log('[FilterReset] New search started, clearing filters');
-			clientFilters = clearAllFilters();
-		}
-		wasSearching = isSearching;
-	}
 
 	// Restore filters from sessionStorage on mount
 	onMount(() => {
@@ -41,7 +51,17 @@
 			const savedFilters = sessionStorage.getItem('youtube_client_filters');
 			if (savedFilters) {
 				const parsed = JSON.parse(savedFilters);
-				clientFilters = { ...clearAllFilters(), ...parsed };
+				clientFilters = {
+					subscriberRanges: [],
+					viewRanges: [],
+					avgViewRanges: [],
+					countries: [],
+					uploadDateRange: '',
+					searchQuery: '',
+					hasEmail: false,
+					hasSocialLinks: false,
+					...parsed
+				};
 				console.log('[FilterPersistence] Restored filters:', clientFilters);
 			}
 		} catch (error) {
@@ -80,7 +100,7 @@
 	}
 
 	function handleClearFilters() {
-		clientFilters = clearAllFilters();
+		clientFilters = ClientFilterUtils.clearAllFilters();
 		// Clear saved filters when user explicitly clears them
 		try {
 			sessionStorage.removeItem('youtube_client_filters');
