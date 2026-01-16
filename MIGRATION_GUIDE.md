@@ -1,5 +1,7 @@
 # Backend Migration Guide: SvelteKit to Next.js
 
+⚠️ **NOTE:** This guide was used for the initial backend migration. The backend has now been successfully separated into the `youtube-scraper-backend` project. Enrichment and cron job functionality is now handled entirely by the separate backend.
+
 This guide provides a complete step-by-step process to separate the backend logic from this SvelteKit project into a standalone Next.js API backend.
 
 ## Table of Contents
@@ -363,8 +365,10 @@ export async function POST(request: NextRequest) {
 }
 ```
 
-#### 3. Enrich Endpoint (Cron/Manual)
-**Path:** `app/api/youtube/enrich/route.ts`
+#### 3. Enrich Endpoint ~~(Cron/Manual)~~ - DEPRECATED
+**⚠️ NOTE:** Enrichment is now handled automatically by the separate backend. This endpoint is no longer needed in the frontend.
+
+**Path:** `app/api/youtube/enrich/route.ts` (REMOVED)
 **Methods:** POST, GET
 **Request Body (optional):**
 ```typescript
@@ -545,9 +549,11 @@ const nextConfig = {
 export default nextConfig;
 ```
 
-### vercel.json
+### vercel.json - DEPRECATED
 
-Create `vercel.json` for Vercel deployment:
+⚠️ **NOTE:** Cron jobs are no longer needed in the frontend. Enrichment is handled by the separate backend.
+
+~~Create `vercel.json` for Vercel deployment:~~
 
 ```json
 {
@@ -563,20 +569,15 @@ Create `vercel.json` for Vercel deployment:
       "maxDuration": 60,
       "memory": 3008
     }
-  },
-  "crons": [
-    {
-      "path": "/api/youtube/enrich",
-      "schedule": "*/10 * * * *"
-    }
-  ]
+  }
+  // "crons" section removed - enrichment now handled by backend
 }
 ```
 
 **Configuration Explained:**
 - `maxDuration: 60`: 60-second timeout (Pro plan required)
 - `memory: 3008`: Maximum memory for Puppeteer/Chromium
-- `crons`: Background enrichment every 10 minutes
+- ~~`crons`: Background enrichment every 10 minutes~~ (REMOVED - handled by backend)
 
 ### Chromium Binary Configuration
 
@@ -1168,9 +1169,11 @@ curl https://your-backend.vercel.app/api/youtube/search \
 - Check function logs for errors
 - Monitor execution time and memory usage
 
-#### Step 3: Test Cron Jobs
-- Verify `/api/youtube/enrich` runs every 10 minutes
-- Check enrichment_jobs table for processed jobs
+#### Step 3: ~~Test Cron Jobs~~ - NOT NEEDED
+⚠️ **DEPRECATED:** Cron jobs are no longer used. Enrichment is handled automatically by the separate backend.
+
+~~- Verify `/api/youtube/enrich` runs every 10 minutes~~
+~~- Check enrichment_jobs table for processed jobs~~
 
 #### Step 4: Load Testing (Optional)
 ```bash
@@ -1191,7 +1194,7 @@ ab -n 100 -c 10 -p search.json -T application/json https://your-backend.vercel.a
 **Solution:**
 - Ensure `@sparticuz/chromium` is installed
 - Check `executablePath` uses `await chromium.executablePath()`
-- Verify `vercel.json` has `memory: 3008`
+- ~~Verify `vercel.json` has `memory: 3008`~~ (Not needed - scraping in backend)
 
 #### 2. API Timeout
 
@@ -1199,7 +1202,7 @@ ab -n 100 -c 10 -p search.json -T application/json https://your-backend.vercel.a
 
 **Solution:**
 - Add `export const maxDuration = 60` in route.ts
-- Update `vercel.json` with function timeout config
+- ~~Update `vercel.json` with function timeout config~~ (Not needed - handled in backend)
 - Requires Vercel Pro plan for >10s timeout
 
 #### 3. CORS Errors

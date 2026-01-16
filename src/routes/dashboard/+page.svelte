@@ -2,6 +2,9 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/authStore';
+	import { PUBLIC_API_URL } from '$env/static/public';
+
+	const API_URL = PUBLIC_API_URL || 'http://localhost:8090';
 
 	interface SearchHistoryItem {
 		id: string;
@@ -67,7 +70,7 @@
 				totalPages = Math.ceil((data.total || 0) / pageSize);
 				console.log('[Dashboard] Successfully loaded', history.length, 'items');
 			} else {
-				throw new Error(data.error || 'Failed to load history');
+				throw new Error(data.message || 'Failed to load history');
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
