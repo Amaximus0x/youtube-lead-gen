@@ -30,12 +30,14 @@
 
 	async function loadHistory() {
 		try {
+			console.log('[Dashboard] Starting loadHistory...');
 			isLoading = true;
 			error = null;
 
 			// Get user ID if authenticated
 			const auth = $authStore;
 			const userId = auth.user?.id || null;
+			console.log('[Dashboard] User ID:', userId);
 
 			// Build query params
 			const params = new URLSearchParams({
@@ -47,21 +49,26 @@
 				params.append('userId', userId);
 			}
 
-			const response = await fetch(
-				`${API_URL}/youtube/search-history?${params.toString()}`
-			);
+			const apiUrl = `/api/history?${params.toString()}`;
+			console.log('[Dashboard] Fetching from:', apiUrl);
+
+			const response = await fetch(apiUrl);
+			console.log('[Dashboard] Response status:', response.status, response.statusText);
 
 			if (!response.ok) {
-				throw new Error('Failed to load search history');
+				const errorText = await response.text();
+				console.error('[Dashboard] Error response:', errorText);
+				throw new Error(`Failed to load search history (${response.status}): ${errorText}`);
 			}
 
 			const data = await response.json();
+			console.log('[Dashboard] Response data:', data);
 
-			// Backend returns: { status: "success", data: { history, total, ... } }
-			if (data.status === 'success' && data.data) {
-				history = data.data.history || [];
-				hasMore = data.data.hasMore || false;
-				totalPages = Math.ceil((data.data.total || 0) / pageSize);
+			if (data.success) {
+				history = data.history || [];
+				hasMore = data.hasMore || false;
+				totalPages = Math.ceil((data.total || 0) / pageSize);
+				console.log('[Dashboard] Successfully loaded', history.length, 'items');
 			} else {
 				throw new Error(data.message || 'Failed to load history');
 			}
@@ -70,6 +77,7 @@
 			console.error('[Dashboard] Error loading history:', err);
 		} finally {
 			isLoading = false;
+			console.log('[Dashboard] Finished loading, isLoading =', false);
 		}
 	}
 
@@ -127,7 +135,10 @@
 		loadHistory();
 	});
 
-	$: if (currentPage) {
+	// Reload history when page changes (but not on initial load)
+	let previousPage = currentPage;
+	$: if (previousPage !== currentPage) {
+		previousPage = currentPage;
 		loadHistory();
 	}
 </script>
