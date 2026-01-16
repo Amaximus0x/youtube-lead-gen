@@ -127,7 +127,13 @@
 		loadHistory();
 	});
 
+	// Reload when page changes
 	$: if (currentPage) {
+		loadHistory();
+	}
+
+	// Reload when user signs in/out
+	$: if ($authStore.user !== undefined && !$authStore.loading) {
 		loadHistory();
 	}
 </script>
