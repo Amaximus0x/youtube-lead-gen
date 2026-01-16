@@ -34,8 +34,8 @@
     statusMessage = state.statusMessage;
   }
 
-  // Get API URL from environment or use default
-  const API_URL = import.meta.env.VITE_PUBLIC_API_URL || 'http://localhost:8090';
+  // Get API URL from environment
+  const API_URL = import.meta.env.VITE_PUBLIC_API_URL;
 
   // LocalStorage key for tracking active jobs
   const ACTIVE_JOB_KEY = 'youtube-lead-gen-active-job';

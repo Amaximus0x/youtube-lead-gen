@@ -5,7 +5,7 @@
   import type { ChannelSearchResult } from '$lib/types/api';
   import { PUBLIC_API_URL } from '$env/static/public';
 
-  const API_URL = PUBLIC_API_URL || 'http://localhost:8090';
+  const API_URL = PUBLIC_API_URL;
 
   // Accept channels as prop (for filtered channels from parent)
   export let channels: ChannelSearchResult[] = [];
